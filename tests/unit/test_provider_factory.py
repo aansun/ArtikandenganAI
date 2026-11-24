@@ -17,7 +17,10 @@ from src.core.llm.policy import RetryPolicy
 from src.core.llm.provider_config import (
     SUPPORTED_PROVIDERS, ProviderConfig,
 )
+from src.core.llm.providers.agy import AgyProvider
+from src.core.llm.providers.claude_cli import ClaudeCLIProvider
 from src.core.llm.providers.deepseek import DeepSeekProvider
+from src.core.llm.providers.fallback import FallbackProvider
 from src.core.llm.providers.gemini import GeminiProvider
 from src.core.llm.providers.litellm import LiteLLMProvider
 from src.core.llm.providers.mistral import MistralProvider
@@ -60,6 +63,9 @@ EXPECTED_PROVIDER_CLASS = {
     "poe": PoeProvider,
     "nim": OpenAICompatibleProvider,
     "litellm": LiteLLMProvider,
+    "claude-cli": ClaudeCLIProvider,
+    "agy": AgyProvider,
+    "agy-claude": FallbackProvider,
 }
 
 
