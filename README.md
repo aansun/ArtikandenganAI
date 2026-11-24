@@ -60,6 +60,7 @@ That's it (就这么简单 · これだけ · 이게 다예요). On first launch
 
 | Provider | Type | Get started |
 |----------|------|-------------|
+| **Claude CLI** | Local CLI (`--provider claude-cli`) | `claude auth login`, see [docs/BOOK_AGENT.md](docs/BOOK_AGENT.md) |
 | **DeepSeek** | Cloud | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 | **Gemini** | Cloud | [Google AI Studio](https://aistudio.google.com/apikey) |
 | **Mistral** | Cloud | [console.mistral.ai](https://console.mistral.ai/api-keys) |
@@ -71,6 +72,8 @@ That's it (就这么简单 · これだけ · 이게 다예요). On first launch
 | **Poe** | Cloud (multi-model) | [poe.com/api_key](https://poe.com/api_key) |
 
 See [docs/PROVIDERS.md](docs/PROVIDERS.md) for detailed setup instructions.
+
+**Book agent.** Put books in `books/inbox/` and run `python translate_book.py`: it splits multi-volume books, translates into Indonesian with the Claude CLI (Sonnet at most; `agy` can go first via `--translate-provider agy-claude`), builds a shared glossary first for fiction, and files everything under `books/<book>/` (`source/`, `translation/`, `book.json`) with an `books/INDEX.md`. It also runs as a cloud worker (`docker-compose.agent.yml`). See [docs/BOOK_AGENT.md](docs/BOOK_AGENT.md).
 
 ---
 
