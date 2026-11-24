@@ -75,6 +75,14 @@ _RELOADABLE_ENV_SETTINGS = (
     # "anthropic/claude-sonnet-4-6". Keys are read from each provider's native
     # env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...), not from a single key.
     ('LITELLM_MODEL',       'LITELLM_MODEL',       ''),
+    # Claude CLI provider: runs `claude -p`. Model is a `claude --model` alias
+    # or full id; PATH overrides the executable lookup; EFFORT is optional.
+    ('CLAUDE_CLI_MODEL',    'CLAUDE_CLI_MODEL',    'sonnet'),
+    ('CLAUDE_CLI_PATH',     'CLAUDE_CLI_PATH',     ''),
+    ('CLAUDE_CLI_EFFORT',   'CLAUDE_CLI_EFFORT',   ''),
+    # Antigravity CLI provider: runs `agy --print`. Model is an id from `agy models`.
+    ('AGY_MODEL',           'AGY_MODEL',           'gemini-3.8-flash-high'),
+    ('AGY_PATH',            'AGY_PATH',            ''),
     ('OUTPUT_FILENAME_PATTERN', 'OUTPUT_FILENAME_PATTERN', '{originalName} ({targetLang}).{ext}'),
     ('DISABLE_AUTO_PAUSE',   'DISABLE_AUTO_PAUSE',   'false'),
     # Webhook notifications — kept here so the web UI can change them at runtime

@@ -661,6 +661,8 @@ class JobConfig:
                 'nim': cfg.NIM_MODEL, 'litellm': cfg.LITELLM_MODEL, 'mistral': cfg.MISTRAL_MODEL,
                 'deepseek': cfg.DEEPSEEK_MODEL, 'poe': cfg.POE_MODEL,
                 'openrouter': cfg.OPENROUTER_MODEL, 'gemini': cfg.GEMINI_MODEL,
+                'claude-cli': cfg.CLAUDE_CLI_MODEL, 'agy': cfg.AGY_MODEL,
+                'agy-claude': cfg.AGY_MODEL,
             }.get(provider_name)
             if provider_default:
                 model = provider_default
