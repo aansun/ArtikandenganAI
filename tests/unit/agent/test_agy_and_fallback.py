@@ -56,11 +56,11 @@ def test_oversized_prompt_is_refused_as_context_overflow(monkeypatch):
 
 
 class Stub:
-    provider_name = "stub"
     display_name = "Stub"
 
     def __init__(self, model, error=None):
         self.model, self.error, self.seen = model, error, []
+        self.provider_name = "stub-" + model      # one breaker per engine, as in real life
 
     async def _send(self, request):
         self.seen.append(request.model)

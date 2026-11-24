@@ -666,6 +666,8 @@ class JobConfig:
             }.get(provider_name)
             if provider_default:
                 model = provider_default
+            elif provider_name in ('codex', 'chain'):
+                model = ''  # the CLI's own model / each engine of the chain sets its own
 
         fix_terms = getattr(args, 'fix_terms', None)
         refine_only = bool(getattr(args, 'refine_only', False))

@@ -50,6 +50,8 @@ from .providers.litellm import LiteLLMProvider
 from .providers.claude_cli import ClaudeCLIProvider
 from .providers.agy import AgyProvider
 from .providers.fallback import FallbackProvider
+from .providers.chain import ChainProvider
+from .providers.codex_cli import CodexProvider
 
 # Factory
 from .factory import create_llm_provider
@@ -91,6 +93,8 @@ __all__ = [
     'ClaudeCLIProvider',
     'AgyProvider',
     'FallbackProvider',
+    'ChainProvider',
+    'CodexProvider',
     'OpenRouterProvider',
     'GeminiProvider',
     'MistralProvider',

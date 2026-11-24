@@ -1,14 +1,21 @@
 # Book Translator Agent
 
-`translate_book.py` translates whole books into Indonesian (by default) with the `claude` CLI.
-It is a layer on top of the existing translation engine, so EPUB structure, checkpoints and the
-glossary machinery are the engine's own. Claude is used at `sonnet` at most; `opus` is not an
-option anywhere.
+`translate_book.py` translates whole books into Indonesian (by default) with the command line
+tools you already have signed in to: `claude`, `codex` and `agy`. It is a layer on top of the
+existing translation engine, so EPUB structure, checkpoints and the glossary machinery are the
+engine's own. Claude is used at `sonnet` at most; `opus` is not an option anywhere.
+
+**Engines.** The agent finds the active engines by itself (installed AND answering a tiny test
+question). The first active one, in the order claude, codex, agy, is the main engine and the other
+active ones are backups, in order: when the main engine hits a quota or fails, the next one answers
+that request, and a failing engine rests for ten minutes. `python translate_book.py --detect` shows
+what was found; `--engines codex,claude` changes the order or the set.
 
 ## Quick start: a new book
 
-Prerequisites, once: the `claude` CLI is installed and signed in (`claude auth login`), and
-`.env` holds `ATTRIBUTION_ENABLED=false` (no translator signature in the result).
+Prerequisites, once: at least one of the `claude`, `codex` and `agy` CLIs is installed and signed in
+(for example `claude auth login`), and `.env` holds `ATTRIBUTION_ENABLED=false` (no translator
+signature in the result).
 
 1. **Upload.** Copy the book into `books/inbox/`: an EPUB or TXT file, or a folder with one file
    per volume.
@@ -53,9 +60,11 @@ One run does, for each book:
    `Volume 3`); a folder of volume files is used as is; with no markers the book is one volume.
 3. **Classify** the book (genre, source language, title) with one cheap call. If it fails, a local
    heuristic takes over. Fiction gets steps 5 to 7 in full; other books skip the glossary.
-4. **Choose the model** from the genre: `sonnet` for fiction, specialist and general books,
-   `haiku` for children's and simple text (`--profile economy` also drops general non-fiction to
-   `haiku`). `-m` forces another model; any opus model is refused.
+4. **Choose the engines and models** from the genre: tier `sonnet` for fiction, specialist and
+   general books, tier `haiku` for children's and simple text (`--profile economy` also drops general
+   non-fiction to `haiku`). Each engine maps the tier to its own model (claude: haiku or sonnet;
+   agy: Gemini Flash; codex: its own configured model). `-m` forces the main engine's model; any
+   opus model is refused.
 5. **Book bible (fiction), on `sonnet`.** Every volume is cut into parts of about 60k characters
    and the entity pass runs on each part (excerpts spread over the part plus a window around every
    recurring name found by a local scan), not on one sample. The results of all parts and volumes
@@ -64,8 +73,11 @@ One run does, for each book:
    keeps its original form (`decision: keep`), each form ("Holmes", "Sherlock Holmes") being its
    own entry; a name in another script keeps the transliteration chosen once (`transliterate`).
    The result is `glossary.json`, plain JSON you can edit.
-6. **Style guide.** `style.md` holds a fixed baseline for natural Indonesian plus book-specific
-   decisions written once (register and address between characters, narration, dialogue, titles
+6. **Style guide.** First a style is **recommended from the content of the book**: formal and
+   restrained (saya/Anda), casual and modern (aku/kamu), or literary and poetic, with a one-sentence
+   reason; `--style auto` (default) takes the recommendation, `--style formal|santai|sastra` forces
+   one, and the options, recommendation and choice are written to `style.json`. Then `style.md`
+   holds a fixed baseline for natural Indonesian plus book-specific decisions written once (register and address between characters, narration, dialogue, titles
    and terms), about 350 words, injected into every translation and polish request.
 7. **Calibration (fiction).** `calibration.md` shows two passages (the opening and the most
    dialogue-dense stretch) translated with the glossary and the style guide.
@@ -139,7 +151,11 @@ anything still missing (title, creator, language, identifier, description, cover
 | `-m MODEL`, `--effort LEVEL` | Force the model; effort level for the CLI |
 | `--no-split`, `--volume-pattern REGEX` | Control volume splitting |
 | `--chunk-tokens N`, `--parallel N` | Chunk size (default 1800); concurrent chunks (default 1) |
-| `--translate-provider claude-cli\|agy-claude\|agy` | Claude only (default); `agy` first with Claude as backup; `agy` only |
+| `--translate-provider auto\|claude-cli\|codex\|agy\|agy-claude` | `auto` (default): every active engine, first = main, rest = backups; or force one |
+| `--engines codex,claude`, `--refresh-engines` | Order or subset of engines for `auto`; probe them again instead of using the cached result |
+| `--style auto\|formal\|santai\|sastra` | Translation style; `auto` follows the recommendation |
+| `--detect` | Print the engines found, as JSON, and exit |
+| `--inspect FILE` | Print what the app shows for a book (title, author, volumes, fiction or not, estimated time), as JSON, and exit |
 | `--watch` | Worker mode: keep translating whatever lands in the inbox (cloud) |
 
 ## Cost and speed
@@ -149,13 +165,26 @@ local models) and one chunk at a time, because parallel chunks lose the context 
 previous chunk. As a measure, a 43,000-word novel took about 44 minutes with the polish pass on
 `sonnet`. A ten-volume novel is a long job.
 
-## The agy option
+## For the Mac app
 
-`--translate-provider agy-claude` puts the Antigravity CLI (Gemini Flash) first with Claude as
-backup: a failed `agy` request is answered by Claude, and after a quota or sign-in failure `agy`
-is skipped for 10 minutes. It is off by default because its quota ran out; the default is one
-constant, `DEFAULT_TRANSLATE_PROVIDER` in `src/core/agent/routing.py`. `agy` adds roughly 24k tokens
-of fixed overhead per call (`claude` about 5k).
+The app drives `translate_book.py` and reads files; it needs no other interface:
+
+- `--detect`: engines as JSON (`name`, `label`, `active`, `reason`, `role` main or backup, `path`).
+- `--inspect FILE`: title, author, volumes, `kind` (fiksi or nonfiksi, recognised from the content),
+  source language, word count and estimated minutes, for the Masukkan card. `--fiction` /
+  `--non-fiction` overrides the recognition when the user flips it.
+- `books/status.json`: what runs now (`state` running or idle, book, volume, `pct`, `engine` that
+  answered last), updated every couple of seconds.
+- `books/<book>/book.json`, `style.json`, `glossary.json`, `qa_report.md`: the book's state, style
+  options and recommendation, locked names and the quality audit.
+- Order of the queue is the app's: it starts one book after another with `-i`.
+
+## The agy engine
+
+`agy` adds roughly 24k tokens of fixed overhead per call (`claude` about 5k, `codex` about 9k), which
+uses its quota quickly. A quota that is used up shows in `--detect` with the time it comes back, and
+the engine is simply left out until then. `--translate-provider agy-claude` (agy first, claude as
+backup) is still available.
 
 ## Running in the cloud
 
@@ -169,8 +198,8 @@ docker compose -f docker-compose.agent.yml up -d --build
 ```
 
 Upload books into the volume's `inbox/`. The worker picks up each finished upload and retries
-unfinished books every 30 minutes. The container translates with Claude only: `agy` has no
-documented headless sign-in or Linux package. Authentication is `ANTHROPIC_API_KEY`
+unfinished books every 30 minutes. The container translates with Claude only (`--translate-provider claude-cli`): `agy` has no
+documented headless sign-in or Linux package, and `codex` has not been tried there. Authentication is `ANTHROPIC_API_KEY`
 (pay-per-token) or a `CLAUDE_CODE_OAUTH_TOKEN` made with `claude setup-token`; check Anthropic's
 current terms before running a subscription token unattended on a server. The image has not been
 built or run yet.

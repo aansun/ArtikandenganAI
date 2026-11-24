@@ -16,9 +16,12 @@ Uploads go in ``books/inbox``; each book then gets its own folder under
 lists them all.
 """
 import argparse
+import json
 import logging
+import os
 import sys
 import time
+from dataclasses import asdict
 
 from pathlib import Path
 
@@ -33,10 +36,10 @@ from src.utils.console import ensure_utf8_stdio  # noqa: E402
 ensure_utf8_stdio()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-from src.core.agent import AgentOptions, BookAgent, library, parse_volume_selection  # noqa: E402
+from src.core.agent import AgentOptions, BookAgent, engines as engines_mod, library, parse_volume_selection  # noqa: E402
 from src.core.agent.routing import (  # noqa: E402
-    DEFAULT_TRANSLATE_PROVIDER, PROFILES, PROVIDER_AGY_CLAUDE, PROVIDER_CLAUDE, TRANSLATE_PROVIDERS,
-    check_allowed)
+    DEFAULT_TRANSLATE_PROVIDER, PROFILES, PROVIDER_AGY_CLAUDE, PROVIDER_AUTO, PROVIDER_CLAUDE,
+    TRANSLATE_PROVIDERS, check_allowed)
 from src.core.llm.providers.agy import find_agy_executable  # noqa: E402
 from src.core.llm.providers.claude_cli import find_claude_executable  # noqa: E402
 
@@ -62,8 +65,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-sl", "--source-lang", help="Source language (default: detected).")
     p.add_argument("--translate-provider", choices=TRANSLATE_PROVIDERS,
                    default=DEFAULT_TRANSLATE_PROVIDER,
-                   help="claude-cli (default for now): claude only. agy-claude: agy first, claude "
-                        "CLI as backup. agy: agy only.")
+                   help="auto (default): every active engine of claude, codex and agy; the first "
+                        "is the main one and the others are backups. Or force one: claude-cli, "
+                        "codex, agy, or agy-claude (agy first, claude as backup).")
+    p.add_argument("--engines", default=os.getenv("AGENT_ENGINES", ""),
+                   help="With auto: the engines to consider and their order, e.g. codex,claude "
+                        "(default: claude,codex,agy, or $AGENT_ENGINES).")
+    p.add_argument("--refresh-engines", action="store_true",
+                   help="Probe the engines again instead of using the result kept a few minutes.")
+    p.add_argument("--detect", action="store_true",
+                   help="Print the engines found on this machine as JSON and exit.")
+    p.add_argument("--inspect", metavar="FILE",
+                   help="Print what the app shows for a book (title, volumes, fiction or not, "
+                        "estimated time) as JSON and exit.")
     p.add_argument("--profile", choices=PROFILES, default="balanced",
                    help="Quality/cost trade-off for model routing (default: balanced).")
     p.add_argument("-m", "--model",
@@ -76,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Treat the book as fiction (glossary first), whatever the classifier says.")
     fic.add_argument("--non-fiction", dest="fiction", action="store_false",
                      help="Treat the book as non-fiction (no glossary).")
+    p.add_argument("--style", choices=["auto", "formal", "santai", "sastra"], default="auto",
+                   help="Translation style: auto picks the one recommended from the book's content "
+                        "(default); formal, santai (casual) or sastra (literary) forces it.")
     p.add_argument("--glossary", help="Use this glossary file (.json/.csv) instead of building one.")
     p.add_argument("--glossary-only", "--prepare-only", dest="glossary_only", action="store_true",
                    help="Stop after the preparation (glossary.json, style.md, calibration.md) so "
@@ -114,6 +131,8 @@ def _options(args, input_path: Path, root: Path) -> AgentOptions:
         split=not args.no_split, volume_pattern=args.volume_pattern,
         only_volumes=parse_volume_selection(args.volumes) if args.volumes else None,
         redo=args.redo,
+        engines=[e.strip() for e in args.engines.split(",") if e.strip()] or None,
+        refresh_engines=args.refresh_engines, style=args.style,
         glossary_only=args.glossary_only, refine=args.refine,
         keep_original_title=args.keep_original_title, refresh_metadata=args.refresh_metadata,
         max_tokens_per_chunk=args.chunk_tokens, parallel=args.parallel, effort=args.effort)
@@ -151,6 +170,8 @@ def process_pending(args, root: Path, retry_at: dict, only_settled: bool) -> int
 
 
 def _check_tools(parser, provider: str) -> None:
+    if provider == PROVIDER_AUTO:
+        return  # the engines are detected, and reported, when the run starts
     needs_agy = provider in (PROVIDER_AGY_CLAUDE, "agy")
     if needs_agy and not find_agy_executable():
         parser.error("the 'agy' CLI was not found: install it or set AGY_PATH")
@@ -161,6 +182,22 @@ def _check_tools(parser, provider: str) -> None:
               "claude backup are unavailable", file=sys.stderr)
 
 
+def _inspect(parser, args, root, order) -> int:
+    from src.core.agent.inspect_book import inspect_book
+    from src.core.llm import ProviderConfig, create_llm_provider
+    path = Path(args.inspect)
+    if not path.exists():
+        parser.error(f"not found: {path}")
+    provider = None
+    active = [e for e in engines_mod.detect_engines(order, cache_path=root / ".engines.json",
+                                                    refresh=args.refresh_engines) if e.active]
+    if active:
+        provider = create_llm_provider(ProviderConfig(provider="chain", model="", options={
+            "chain": engines_mod.chain_for(active, "haiku")}))
+    print(json.dumps(inspect_book(path, provider, target_language=args.target_lang), ensure_ascii=False))
+    return 0
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -169,9 +206,18 @@ def main(argv=None) -> int:
             check_allowed(args.model)
         except ValueError as exc:
             parser.error(str(exc))
-    _check_tools(parser, args.translate_provider)
-
     root = library.books_root(args.books_dir)
+    order = [e.strip() for e in args.engines.split(",") if e.strip()] or None
+
+    if args.detect:
+        found = engines_mod.detect_engines(order, cache_path=root / ".engines.json",
+                                           refresh=args.refresh_engines)
+        print(json.dumps([asdict(e) for e in found], ensure_ascii=False))
+        return 0
+    if args.inspect:
+        return _inspect(parser, args, root, order)
+
+    _check_tools(parser, args.translate_provider)
     (library.inbox_dir(root)).mkdir(parents=True, exist_ok=True)
 
     if args.input:

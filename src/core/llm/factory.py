@@ -26,7 +26,9 @@ from .provider_config import (
     _env_key,
 )
 from .providers.agy import AgyProvider
+from .providers.chain import ChainProvider
 from .providers.claude_cli import ClaudeCLIProvider
+from .providers.codex_cli import CodexProvider
 from .providers.deepseek import DeepSeekProvider
 from .providers.fallback import FallbackProvider
 from .providers.gemini import GeminiProvider
@@ -221,6 +223,21 @@ def create_llm_provider(
             log_callback=cfg.log_callback,
             **common,
         )
+    if cfg.provider == "codex":
+        # Authentication is the CLI's own; an empty model means the CLI's configured one.
+        return CodexProvider(model=cfg.model or "", log_callback=cfg.log_callback, **common)
+    if cfg.provider == "chain":
+        # The engines to try in order: opts["chain"] = [{"provider": ..., "model": ...}, ...].
+        links = []
+        for spec in opts.get("chain") or []:
+            engine = create_llm_provider(ProviderConfig(
+                provider=spec["provider"], model=spec.get("model", ""),
+                options={"effort": opts["effort"]} if opts.get("effort") else {},
+                log_callback=cfg.log_callback, retry=cfg.retry, temperature=cfg.temperature))
+            links.append((engine, spec.get("model", "")))
+        if not links:
+            raise LLMClientConfigError("the 'chain' provider needs at least one engine")
+        return ChainProvider(links, log_callback=cfg.log_callback, **common)
     if cfg.provider == "agy-claude":
         # agy first, the claude CLI as backup (see providers/fallback.py).
         primary = AgyProvider(
