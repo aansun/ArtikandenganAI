@@ -45,3 +45,12 @@ credentials.*
 # Not a secret: the provider -> env-var table and key resolver.
 !src/core/llm/credentials.py
 .wiki_repo_archive/
+
+# Local Python environment and book-agent run directories
+/.venv
+/books/*
+!/books/README.md
+!/books/inbox/
+/books/inbox/*
+!/books/inbox/.gitkeep
+.DS_Store
