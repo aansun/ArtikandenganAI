@@ -21,10 +21,18 @@ def test_tier_by_genre(genre, profile, tier):
     assert choose_model(genre, profile=profile).tier == tier
 
 
-def test_default_is_claude_only():
-    assert DEFAULT_TRANSLATE_PROVIDER == "claude-cli"
-    choice = choose_model("fiction_novel")
-    assert (choice.model, choice.backup_model) == ("sonnet", None)
+def test_default_is_auto_and_chains_the_active_engines_in_order():
+    from src.core.agent.engines import Engine
+    assert DEFAULT_TRANSLATE_PROVIDER == "auto"
+    engines = [Engine("claude", "Claude", "claude-cli", "/x", True, "ok", "main"),
+               Engine("codex", "Codex", "codex", "/x", True, "ok", "backup"),
+               Engine("agy", "Antigravity", "agy", "", False, "quota")]
+    choice = choose_model("fiction_novel", engines=engines)
+    assert [(c["provider"], c["model"]) for c in choice.chain] == [("claude-cli", "sonnet"), ("codex", "")]
+    cheap = choose_model("children", engines=engines)
+    assert [c["model"] for c in cheap.chain] == ["haiku", ""]
+    forced = choose_model("fiction_novel", engines=engines, override="sonnet")
+    assert forced.chain[0]["model"] == "sonnet" and forced.chain[1]["model"] == ""
 
 
 def test_agy_first_mode_has_claude_as_backup():

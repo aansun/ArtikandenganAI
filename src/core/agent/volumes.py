@@ -81,6 +81,25 @@ def slugify(text: str, fallback: str = "book") -> str:
     return slug[:60] or fallback
 
 
+def count_volumes(source: Path, *, pattern: Optional[str] = None) -> int:
+    """How many volumes ``source`` holds, without writing anything (1 when no marker is found)."""
+    source = Path(source)
+    if source.is_dir():
+        return len([p for p in source.iterdir() if p.suffix.lower() in SUPPORTED_SUFFIXES]) or 1
+    regex = compile_pattern(pattern)
+    try:
+        if source.suffix.lower() == ".epub":
+            return len(_find_boundaries(_Epub(source), regex)) or 1
+        if source.suffix.lower() in (".txt", ".md"):
+            text = source.read_text(encoding="utf-8", errors="replace")
+            hits = [ln for ln in text.splitlines() if 0 < len(ln.strip()) <= _MAX_LABEL_LEN
+                    and regex.match(ln.strip())]
+            return len(hits) if len(hits) >= 2 else 1
+    except Exception:
+        pass
+    return 1
+
+
 def split_into_volumes(source: Path, out_dir: Path, *, pattern: Optional[str] = None,
                        split: bool = True) -> List[Volume]:
     """Return the volumes of ``source``, writing split files into ``out_dir``.
@@ -428,5 +447,5 @@ def _filter_toc(data: bytes, kind: str, drop_files: set, toc_path: str) -> bytes
 
 __all__ = [
     "DEFAULT_VOLUME_PATTERN", "Volume", "split_into_volumes", "natural_key",
-    "compile_pattern", "slugify", "clean_stem",
+    "compile_pattern", "slugify", "clean_stem", "count_volumes",
 ]

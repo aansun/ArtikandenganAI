@@ -16,6 +16,7 @@ So, before translating:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -52,6 +53,8 @@ Cast (name, gender):
 Excerpts (separated by lines of ---):
 {sample}
 
+Direction chosen for this book: {direction}
+
 Write the style guide for translating this book into {target_language}. Use exactly these
 sections, each with 2-4 short, concrete bullets decided FROM THE EXCERPTS (not generic advice):
 
@@ -76,6 +79,29 @@ Rules for the guide: at most 350 words in total; every bullet specific to this b
 the translator to omit, summarize, skip or reorder any text of the book (front and back matter
 are translated like everything else); leave how names are written to the glossary.
 Output the five sections only."""
+
+#: The styles offered to the user: id -> (name, what it means for the translation).
+STYLE_PRESETS = {
+    "formal": ("Formal and restrained",
+               "Use saya and Anda between characters, complete sentences and a polite, measured tone."),
+    "santai": ("Casual and modern",
+               "Use aku and kamu between close characters, short sentences and easy, everyday wording."),
+    "sastra": ("Literary and poetic",
+               "Rich diction, long rhythmic sentences, with atmosphere and imagery emphasised."),
+}
+
+_RECOMMEND_SYSTEM = "You are a literary translator choosing a style. Answer with one JSON object only."
+
+_RECOMMEND_PROMPT = """Book: {title} ({genre}), {source_language} -> {target_language}.
+
+Excerpts (separated by lines of ---):
+{sample}
+
+Choose the best translation style for this book from:
+{options}
+
+Return exactly: {{"style": "<formal|santai|sastra>", "why": "<one sentence in Indonesian saying what in the book \
+makes this style fit>"}}"""
 
 _CALIBRATION_NOTE = (
     "Calibration samples: the same glossary and style guide as the full translation, "
@@ -112,8 +138,55 @@ def refinement_instructions(style: str, target_language: str) -> str:
         "or remove content. Follow this style guide:\n\n" + style)
 
 
+def _json_object(raw: str) -> dict:
+    start, end = raw.find("{"), raw.rfind("}")
+    try:
+        data = json.loads(raw[start:end + 1]) if 0 <= start < end else {}
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def heuristic_style(profile) -> dict:
+    """Offline recommendation from the genre alone."""
+    pick = {"literary_fiction": "sastra", "light_novel": "santai"}.get(profile.genre, "formal")
+    return {"id": pick, "why": "Disarankan dari jenis bukunya; belum dibaca isinya.", "method": "heuristic"}
+
+
+async def recommend_style(text: str, profile, target_language: str, llm_provider) -> dict:
+    """``{"id", "why", "method"}``: the style that fits the book's content; never raises."""
+    fallback = heuristic_style(profile)
+    if not text.strip():
+        return fallback
+    sample, _n = document_sampler.take_distributed_samples(
+        text, SAMPLE_CHARS, SAMPLE_PIECES, min_sample_size=500, separator="\n---\n")
+    options = "\n".join(f"- {key}: {name}. {meaning}" for key, (name, meaning) in STYLE_PRESETS.items())
+    try:
+        response = await llm_provider.generate(
+            _RECOMMEND_PROMPT.format(title=profile.title or "untitled", genre=profile.genre,
+                                     source_language=profile.source_language,
+                                     target_language=target_language, sample=sample, options=options),
+            system_prompt=_RECOMMEND_SYSTEM)
+        data = _json_object(getattr(response, "content", "") or "")
+    except Exception as exc:
+        logger.info("Style recommendation failed (%s); using the genre", exc)
+        return fallback
+    if data.get("style") not in STYLE_PRESETS:
+        return fallback
+    return {"id": data["style"], "why": str(data.get("why") or "").strip() or fallback["why"],
+            "method": "llm"}
+
+
+def write_style_choice(path: Path, recommended: dict, chosen: str) -> None:
+    """style.json: the options, the recommendation and the choice, for the app to show."""
+    path.write_text(json.dumps({
+        "options": [{"id": k, "name": n, "description": d} for k, (n, d) in STYLE_PRESETS.items()],
+        "recommended": recommended["id"], "why": recommended["why"], "chosen": chosen,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 async def build_style_guide(text: str, profile, target_language: str, terms: List[Dict[str, str]],
-                            llm_provider, output: Path) -> str:
+                            llm_provider, output: Path, direction: str = "") -> str:
     """Write ``output`` (``style.md``) and return its text; the baseline alone on failure."""
     baseline = baseline_for(target_language)
     generated = ""
@@ -123,7 +196,7 @@ async def build_style_guide(text: str, profile, target_language: str, terms: Lis
         prompt = _PROMPT.format(
             title=profile.title or "untitled", genre=profile.genre,
             source_language=profile.source_language, target_language=target_language,
-            cast=_cast(terms), sample=sample)
+            cast=_cast(terms), sample=sample, direction=direction or "none, decide from the excerpts")
         try:
             response = await llm_provider.generate(prompt, system_prompt=_SYSTEM)
             generated = _clean_sections(getattr(response, "content", "") or "")

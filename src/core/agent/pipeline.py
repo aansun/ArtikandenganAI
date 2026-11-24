@@ -40,12 +40,13 @@ from src.core.agent import library
 from src.core.agent.classifier import BookProfile, classify_book
 from src.core.agent.epub_metadata import (
     GENRE_SUBJECTS_ID, audit_metadata, finalize_metadata, read_metadata, strip_volume_suffix)
+from src.core.agent import engines as engines_mod
 from src.core.agent.glossary_builder import build_glossary
 from src.core.agent import qa as qa_mod
 from src.core.agent import style as style_mod
 from src.core.agent.intake import boilerplate_documents, clean_volume, remove_documents
 from src.core.agent.routing import (
-    DEFAULT_TRANSLATE_PROVIDER, GLOSSARY_MODEL, PROVIDER_CLAUDE, ModelChoice, choose_model, models_for)
+    DEFAULT_TRANSLATE_PROVIDER, GLOSSARY_MODEL, PROVIDER_AUTO, PROVIDER_CLAUDE, ModelChoice, choose_model, models_for)
 from src.core.agent.volumes import Volume, slugify, split_into_volumes
 from src.core.auto_prep import extract_source_text
 from src.core.job import JobConfig, JobStatus
@@ -86,6 +87,9 @@ class AgentOptions:
     max_tokens_per_chunk: int = DEFAULT_CHUNK_TOKENS
     parallel: int = 1
     effort: Optional[str] = None
+    engines: Optional[List[str]] = None        # order / subset of claude, codex, agy (auto mode)
+    refresh_engines: bool = False              # probe the engines again, ignoring the cache
+    style: str = "auto"                        # auto | formal | santai | sastra
 
 
 @dataclass
@@ -148,6 +152,8 @@ class BookAgent:
         self.style_text = ""
         self.refine_on = False
         self._qa_results: Dict[int, list] = {}
+        self.engines: List[engines_mod.Engine] = []
+        self._engines_ready = False
 
     # ----------------------------------------------------------------- state
     def _load_state(self) -> RunState:
@@ -200,6 +206,27 @@ class BookAgent:
             json.dumps(book, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # ------------------------------------------------------------------ steps
+    @property
+    def auto(self) -> bool:
+        return self.opt.translate_provider == PROVIDER_AUTO
+
+    def _active_engines(self) -> List[engines_mod.Engine]:
+        """The engines found on this machine (probed once per run, cached for a few minutes)."""
+        if not self._engines_ready:
+            self.engines = engines_mod.detect_engines(
+                self.opt.engines, cache_path=self.root / ".engines.json",
+                refresh=self.opt.refresh_engines)
+            self._engines_ready = True
+        return self.engines
+
+    def _chain(self, tier: str):
+        """A provider over every active engine, each at its model for ``tier``."""
+        chain = engines_mod.chain_for(self._active_engines(), tier)
+        options: Dict[str, Any] = {"chain": chain}
+        if self.opt.effort:
+            options["effort"] = self.opt.effort
+        return create_llm_provider(ProviderConfig(provider="chain", model="", options=options))
+
     def _provider(self, provider: str, model: str, backup: Optional[str] = None):
         options: Dict[str, Any] = {}
         if backup:
@@ -239,11 +266,13 @@ class BookAgent:
         if self.state.profile:
             return BookProfile(**self.state.profile)
         text = extract_source_text(file_path=str(volumes[0].path))
-        model, backup = models_for(self.opt.translate_provider, CLASSIFIER_TIER)
-        profile = await classify_book(
-            text, Path(self.opt.input_path).name,
-            self._provider(self.opt.translate_provider, model, backup),
-            target_language=self.opt.target_language)
+        if self.auto:
+            provider = self._chain(CLASSIFIER_TIER)
+        else:
+            model, backup = models_for(self.opt.translate_provider, CLASSIFIER_TIER)
+            provider = self._provider(self.opt.translate_provider, model, backup)
+        profile = await classify_book(text, Path(self.opt.input_path).name, provider,
+                                      target_language=self.opt.target_language)
         if self.opt.source_language:
             profile.source_language = self.opt.source_language
         if self.opt.fiction is not None:
@@ -263,10 +292,11 @@ class BookAgent:
         if path.exists():
             self.say(f"Glossary: reusing {path} (edit it freely, it is read as is)")
             return path
-        self.say(f"Glossary: building from {len(volumes)} volume(s) with claude '{GLOSSARY_MODEL}'")
+        self.say(f"Glossary: building from {len(volumes)} volume(s)")
         count = await build_glossary(
             [v.path for v in volumes], profile.source_language, self.opt.target_language,
-            self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL), path, progress=self.say)
+            self._chain(GLOSSARY_MODEL) if self.auto else self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL),
+            path, progress=self.say)
         if not count:
             self.say("Glossary: no terms found, translating without one")
             return None
@@ -289,16 +319,41 @@ class BookAgent:
             terms = [{"source": s, "category": metadata.get(s, {}).get("category", ""),
                       "gender": metadata.get(s, {}).get("gender", "")} for s in mapping]
         text = extract_source_text(file_path=str(volumes[0].path))
-        provider = self._provider(self.opt.translate_provider, choice.model, choice.backup_model)
+        provider = (self._chain(choice.tier) if self.auto else
+                    self._provider(self.opt.translate_provider, choice.model, choice.backup_model))
+
+        style_provider = (self._chain(GLOSSARY_MODEL) if self.auto
+                          else self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL))
+        choice_path = self.workdir / "style.json"
+        known = {}
+        if choice_path.exists():
+            try:
+                known = json.loads(choice_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                known = {}
+        if known.get("recommended"):
+            recommended = {"id": known["recommended"], "why": known.get("why", "")}
+        else:
+            recommended = await style_mod.recommend_style(text, profile, self.opt.target_language,
+                                                          style_provider)
+        chosen = recommended["id"] if self.opt.style == "auto" else self.opt.style
+        if known.get("chosen") and known["chosen"] != chosen:
+            style_path.unlink(missing_ok=True)                    # another style: write it again
+            (self.workdir / "calibration.md").unlink(missing_ok=True)
+        style_mod.write_style_choice(choice_path, recommended, chosen)
+        self.say(f"Style: {style_mod.STYLE_PRESETS[chosen][0]}"
+                 + (" (recommended: " + recommended["why"] + ")" if chosen == recommended["id"] and recommended.get("why")
+                    else f" (recommended was {recommended['id']})"))
 
         if style_path.exists():
             self.style_text = style_path.read_text(encoding="utf-8")
             self.say(f"Style guide: reusing {style_path} (edit it freely, it is read as is)")
         else:
             self.say("Style guide: writing style.md")
+            name, meaning = style_mod.STYLE_PRESETS[chosen]
             self.style_text = await style_mod.build_style_guide(
-                text, profile, self.opt.target_language, terms,
-                self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL), style_path)
+                text, profile, self.opt.target_language, terms, style_provider, style_path,
+                direction=f"{name}. {meaning}")
         prompt_options["custom_instructions"] = self.style_text
 
         calibration = self.workdir / "calibration.md"
@@ -312,6 +367,8 @@ class BookAgent:
         options = dict(job.provider.options or {})
         if choice.backup_model:
             options["backup_model"] = choice.backup_model
+        if choice.chain:
+            options["chain"] = list(choice.chain)
         if self.opt.effort:
             options["effort"] = self.opt.effort
         prompt_options = dict(job.prompt_options or {})
@@ -331,7 +388,7 @@ class BookAgent:
 
         argv = ["-i", vol.source, "-o", vol.output,
                 "-sl", profile.source_language, "-tl", self.opt.target_language,
-                "--provider", self.opt.translate_provider, "-m", choice.model,
+                "--provider", "chain" if self.auto else self.opt.translate_provider, "-m", choice.model,
                 "--parallel", str(self.opt.parallel), "--no-color"]
         if glossary:
             argv += ["--glossary", str(glossary)]
@@ -352,8 +409,17 @@ class BookAgent:
                 resume = False
         job = self._prepare_job(job, choice)
         Path(vol.output).parent.mkdir(parents=True, exist_ok=True)
+        seen = {"at": 0.0}
+
+        def on_stats(stats):
+            total = stats.get("total_chunks", 0) or 0
+            if time.time() - seen["at"] >= 2 and total:
+                seen["at"] = time.time()
+                self._write_status("running", vol, int(100 * (stats.get("completed_chunks", 0) or 0) / total))
+
+        self._write_status("running", vol, 0)
         result = run_cli_job(job, cli_logger, translation_id=job_id,
-                             checkpoint_manager=manager, is_resume=resume)
+                             checkpoint_manager=manager, is_resume=resume, on_stats=on_stats)
         vol.error = result.error or ""
         return result.status
 
@@ -459,6 +525,22 @@ class BookAgent:
                 for v in self.state.volumes if v.index in self._qa_results]
         (self.workdir / "qa_report.md").write_text(qa_mod.report_markdown(title, rows), encoding="utf-8")
 
+    def _write_status(self, state: str, vol: Optional[VolumeState] = None, pct: int = 0) -> None:
+        """books/status.json: what is running now, for the app (written atomically)."""
+        from src.core.llm.providers.chain import last_engine
+        engine = {"claude-cli": "Claude", "codex": "Codex", "agy": "Antigravity"}.get(last_engine(), "")
+        title = ((self.profile.title if self.profile else "") or self.workdir.name)
+        data = {"state": state, "updated_at": _now(), "book": self.workdir.name, "title": title,
+                "volume": vol.index if vol else 0, "volumes": len(self.state.volumes), "pct": pct,
+                "engine": engine}
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            tmp = self.root / "status.json.tmp"
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.root / "status.json")
+        except OSError:
+            pass
+
     def _finish_volume(self, vol: VolumeState, profile: BookProfile, cli_logger=None) -> None:
         """Complete the metadata of a translated EPUB and record what is still missing."""
         vol.finished_at = _now()
@@ -522,21 +604,34 @@ class BookAgent:
         volumes = self._split(source)
         self.say(f"Volumes: {len(volumes)} ({', '.join(v.label for v in volumes[:5])}"
                  f"{', ...' if len(volumes) > 5 else ''})")
+        if self.auto and not self.opt.refresh_metadata:
+            self._active_engines()
+            if not any(e.active for e in self.engines):
+                self.say("No translation engine is active. Install and sign in to at least one of "
+                         "claude, codex or agy, then try again. Found: "
+                         + "; ".join(f"{e.label}: {e.reason}" for e in self.engines))
+                return 2
         self.profile = asyncio.run(self._classify(volumes))
         profile = self.profile
         if self.opt.redo:
             self._redo_volumes()
         choice = choose_model(profile.genre, profile=self.opt.profile, override=self.opt.model,
-                              provider=self.opt.translate_provider)
+                              provider=self.opt.translate_provider, engines=self.engines)
         self.state.provider = self.opt.translate_provider
         self.state.model = choice.model
         self.state.backup_model = choice.backup_model or ""
         self.say(f"Book: '{profile.title}' | {profile.source_language} -> "
                  f"{self.opt.target_language} | genre {profile.genre} "
                  f"({profile.method}: {profile.reason})")
-        backup = f", backup claude '{choice.backup_model}'" if choice.backup_model else ""
-        self.say(f"Translation: {self.opt.translate_provider} '{choice.model}'{backup} "
-                 f"({choice.reason})")
+        if self.auto:
+            self.say("Engines: " + ", ".join(
+                f"{e.label} ({'main' if e.role == 'main' else 'backup'})" for e in self.engines
+                if e.active) + ("" if all(e.active for e in self.engines) else "; not active: " + ", ".join(
+                    f"{e.label} ({e.reason[:60]})" for e in self.engines if not e.active)))
+        else:
+            backup = f", backup claude '{choice.backup_model}'" if choice.backup_model else ""
+            self.say(f"Translation: {self.opt.translate_provider} '{choice.model}'{backup} "
+                     f"({choice.reason})")
 
         if self.opt.refresh_metadata:
             for vol in self.state.volumes:
@@ -604,6 +699,7 @@ class BookAgent:
                 self.say("Usage limit reached: stopping. Run the same command later to continue.")
                 break
 
+        self._write_status("idle")
         return self._report(time.time() - started)
 
     def _report(self, seconds: float) -> int:

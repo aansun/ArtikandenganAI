@@ -4,9 +4,12 @@ import os
 import re
 
 
+PROBE = "Reply with the single word OK."   # the engine detection's test question
+
+
 def log_call(provider: str, model: str, prompt: str, system: str, **extra) -> None:
     path = os.environ.get("FAKE_LLM_LOG")
-    if path:
+    if path and not prompt.startswith(PROBE):
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"provider": provider, "model": model, "prompt": prompt[:2500],
                                 "system": system[:4000],
@@ -15,6 +18,8 @@ def log_call(provider: str, model: str, prompt: str, system: str, **extra) -> No
 
 def respond(prompt: str, system: str) -> str:
     """The model's answer for the kind of prompt it was given."""
+    if prompt.startswith(PROBE):
+        return "OK"
     text = system + "\n" + prompt
     if "Return exactly this JSON" in prompt:
         genre = os.environ.get("FAKE_GENRE", "fiction_novel")
@@ -38,6 +43,9 @@ def respond(prompt: str, system: str) -> str:
                 '"target": "Jalan Baker", "category": "location", "gender": "unknown"}, '
                 '{"source": "Doctor", "target": "Dokter", "category": "title", '
                 '"gender": "unknown"}]</NER_JSON>')
+    if "Choose the best translation style" in prompt:
+        return json.dumps({"style": os.environ.get("FAKE_STYLE", "sastra"),
+                           "why": "Banyak deskripsi dunia, jadi diksi kaya menjaga suasana."})
     if "Write the style guide" in prompt:
         return ("Sure.\n## Register and address\n- Use saya and Anda between strangers.\n\n"
                 "## Narration\n- Past tense, plain diction.\n\n## Dialogue\n- Short and direct.\n\n"

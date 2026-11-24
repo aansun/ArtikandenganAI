@@ -21,6 +21,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # checkpoint DB and uploads are cwd-relative
     monkeypatch.setenv("CLAUDE_CLI_PATH", str(HERE / "fake_claude.py"))
     monkeypatch.setenv("AGY_PATH", str(HERE / "fake_agy.py"))
+    monkeypatch.setenv("CODEX_PATH", str(HERE / "fake_codex.py"))
+    monkeypatch.setenv("AGENT_ENGINES", "claude")      # tests of the other engines say so themselves
     monkeypatch.setenv("FAKE_LLM_LOG", str(tmp_path / "calls.jsonl"))
     monkeypatch.setenv("BOOKS_DIR", str(tmp_path / "books"))
     return tmp_path
@@ -169,7 +171,7 @@ def test_default_provider_is_claude_only_and_never_touches_agy(env):
     assert {c["provider"] for c in made} == {"claude"}
     assert {c["model"] for c in made if is_translation(c)} == {"sonnet"}
     info = json.loads((book_dir(env) / "book.json").read_text())
-    assert info["translate_provider"] == "claude-cli" and info["backup_model"] == ""
+    assert info["translate_provider"] == "auto" and info["backup_model"] == ""
 
 
 def test_translated_title_on_request(env):
@@ -224,8 +226,11 @@ def test_both_clis_failing_is_reported(env, monkeypatch):
     inbox = env / "books" / "inbox"
     inbox.mkdir(parents=True)
     (inbox / "plain.txt").write_text("Hello there.\n")
-    assert translate_book.main(["--non-fiction"]) == 1
-    assert len(calls(env)) <= 12   # fails fast on auth, not the full retry budget
+    # no engine passes its test question, so nothing is started and the run says why
+    assert translate_book.main(["--non-fiction"]) == 2
+    assert not (env / "calls.jsonl").exists()
+    assert translate_book.main(["--non-fiction", "--translate-provider", "claude-cli"]) == 1
+    assert len(calls(env)) <= 12   # forced engine: fails fast on auth, not the full retry budget
 
 
 def test_library_lists_unfinished_books(env):
