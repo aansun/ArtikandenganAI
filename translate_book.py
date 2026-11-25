@@ -78,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--inspect", metavar="FILE",
                    help="Print what the app shows for a book (title, volumes, fiction or not, "
                         "estimated time) as JSON and exit.")
+    p.add_argument("--set-metadata", metavar="BOOK_FOLDER",
+                   help="Set one metadata field of every translated volume of a book and exit "
+                        "(with --field and --value; an empty --value removes the field).")
+    p.add_argument("--field", help="Metadata field for --set-metadata: title, creator, description, "
+                                   "publisher, date, subject, language or series.")
+    p.add_argument("--value", default="", help="New value for --set-metadata.")
     p.add_argument("--profile", choices=PROFILES, default="balanced",
                    help="Quality/cost trade-off for model routing (default: balanced).")
     p.add_argument("-m", "--model",
@@ -198,6 +204,23 @@ def _inspect(parser, args, root, order) -> int:
     return 0
 
 
+def _set_metadata(parser, args, root) -> int:
+    from src.core.agent.epub_metadata import edit_field
+    folder = Path(args.set_metadata)
+    folder = folder if folder.is_absolute() else root / folder
+    book = library.read_book(folder)
+    if not book or not args.field:
+        parser.error("--set-metadata needs a book folder with a book.json, and --field")
+    volumes = book.get("volumes", [])
+    for vol in volumes:
+        output = Path(vol.get("output", ""))
+        if output.suffix.lower() == ".epub" and output.exists():
+            edit_field(output, args.field, args.value, volume=int(vol.get("index", 0)),
+                       volume_count=len(volumes))
+    print(f"[agent] {args.field} updated in {len(volumes)} volume(s)", flush=True)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -216,6 +239,8 @@ def main(argv=None) -> int:
         return 0
     if args.inspect:
         return _inspect(parser, args, root, order)
+    if args.set_metadata:
+        return _set_metadata(parser, args, root)
 
     _check_tools(parser, args.translate_provider)
     (library.inbox_dir(root)).mkdir(parents=True, exist_ok=True)
