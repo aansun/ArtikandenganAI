@@ -32,7 +32,7 @@ struct ReviewSheet: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            CoverView(title: book.title, width: 40, height: 56, radius: 4)
+            CoverView(title: book.title, image: model.queueCovers[book.id], width: 40, height: 56, radius: 4)
             VStack(alignment: .leading, spacing: 2) {
                 Text(loc.t("review.title", book.title)).font(.system(size: 18, weight: .semibold))
                 Text(loc.t("review.intro")).font(.system(size: 13)).foregroundStyle(Theme.muted)

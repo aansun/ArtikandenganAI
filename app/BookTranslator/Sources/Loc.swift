@@ -420,6 +420,8 @@ final class Loc {
         "about.buy.body": ("This app only helps you read a book you legitimately own in a language you understand. Buy the official edition, and the official translation when there is one. Do not share or sell the translations it makes.", "Aplikasi ini hanya membantu Anda membaca buku yang sah Anda miliki dalam bahasa yang Anda pahami. Beli edisi resminya, dan terjemahan resminya bila ada. Jangan membagikan atau menjual terjemahan yang dihasilkannya."),
         "about.github": ("NNAI Translator on GitHub", "NNAI Translator di GitHub"),
         "about.license": ("Licensed under the GNU AGPL-3.0.", "Berlisensi GNU AGPL-3.0."),
+        "process.stalled": ("%d books are waiting and nothing is running.", "%d buku menunggu dan belum ada yang berjalan."),
+        "process.startQueue": ("Start the queue", "Jalankan antrean"),
         // Time
         "time.min": ("%d min", "%d menit"),
         "time.h": ("%d h", "%d jam"),

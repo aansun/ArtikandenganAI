@@ -362,3 +362,18 @@ final class AboutTests: XCTestCase {
         XCTAssertEqual(AboutContent.limits.count, 7)
     }
 }
+
+
+final class OrphanEngineTests: XCTestCase {
+    func testOnlyOrphanedEnginesOfThisAppAreFound() {
+        let script = "/Applications/NNAI Translator.app/Contents/Resources/engine/translate_book.py"
+        let ps = """
+          100     1 /opt/homebrew/bin/Python \(script) --books-dir /Users/me/books -i x.epub
+          101   100 /opt/homebrew/bin/Python \(script) --books-dir /Users/me/books -i child
+          102     1 /opt/homebrew/bin/Python /Users/me/repo/translate_book.py --books-dir /Users/me/books
+          103     1 /usr/bin/something else
+          104     1 /opt/homebrew/bin/Python \(script) --detect
+        """
+        XCTAssertEqual(AppModel.orphanEngines(psOutput: ps, script: script), [100])
+    }
+}

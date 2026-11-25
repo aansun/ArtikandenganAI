@@ -155,7 +155,7 @@ private struct UploadedRow: View {
     var body: some View {
         HStack(spacing: 12) {
             GripDots()
-            CoverView(title: book.title, width: 34, height: 48, radius: 3)
+            CoverView(title: book.title, image: model.queueCovers[book.id], width: 34, height: 48, radius: 3)
             VStack(alignment: .leading, spacing: 1) {
                 Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
                 if book.stage == .reading {
@@ -200,7 +200,7 @@ private struct ReadyRow: View {
         HStack(spacing: 12) {
             Text("\(position)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 24, height: 24).background(Theme.accent, in: Circle())
-            CoverView(title: book.title, width: 34, height: 48, radius: 3)
+            CoverView(title: book.title, image: model.queueCovers[book.id], width: 34, height: 48, radius: 3)
             VStack(alignment: .leading, spacing: 1) {
                 Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
                 Text("\(loc.t(book.kind.key)) · \(loc.volumes(book.volumes)) · \(loc.t("input.about", loc.minutes(book.estimatedMinutes)))")

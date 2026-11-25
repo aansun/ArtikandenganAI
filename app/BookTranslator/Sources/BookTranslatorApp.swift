@@ -49,7 +49,7 @@ struct MenuBarContent: View {
         VStack(alignment: .leading, spacing: 12) {
             if let book = model.running {
                 HStack(spacing: 12) {
-                    CoverView(title: book.title, width: 44, height: 62, radius: 4)
+                    CoverView(title: book.title, image: model.queueCovers[book.id], width: 44, height: 62, radius: 4)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(book.stage == .preparing ? loc.t("process.preparing") : loc.t("menu.volumeOf", max(book.volume, 1), book.volumes))
                             .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)

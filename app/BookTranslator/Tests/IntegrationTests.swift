@@ -143,3 +143,15 @@ final class RealSetupTests: XCTestCase {
         XCTAssertTrue(leftovers.isEmpty, "wrote into the bundle: \(leftovers.map(\.path))")
     }
 }
+
+/// Reads the real cover out of real EPUBs. Opt-in: BT_COVER_EPUBS=<path>:<path>.
+final class RealCoverTests: XCTestCase {
+    func testBooksOwnCoverIsRead() throws {
+        guard let list = ProcessInfo.processInfo.environment["BT_COVER_EPUBS"] else { throw XCTSkip("BT_COVER_EPUBS not set") }
+        for path in list.components(separatedBy: "::") where !path.isEmpty {
+            let image = EpubReader.cover(URL(fileURLWithPath: path))
+            print("COVER", (path as NSString).lastPathComponent.prefix(40), image.map { "\(Int($0.size.width))x\(Int($0.size.height))" } ?? "none")
+            XCTAssertNotNil(image, path)
+        }
+    }
+}

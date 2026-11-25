@@ -36,7 +36,9 @@ final class AppModel {
     var books: [QueueBook] = [] { didSet { saveQueue(); updateBadge() } }
     var engines: [EngineInfo] = []
     var enginesLoading = false
-    var paused = false
+    var paused = false {
+        didSet { UserDefaults.standard.set(paused, forKey: "queuePaused") }   // a pause the user chose survives a restart
+    }
     var status: EngineStatus?
     var logLine = ""
     var reviewTarget: QueueBook.ID?
@@ -74,6 +76,8 @@ final class AppModel {
         didSet { UserDefaults.standard.set(targetLanguage, forKey: "targetLanguage") }
     }
     var metadataBusy = false
+    /// The books' own cover images (from their EPUB), shown wherever a queued book appears.
+    var queueCovers: [QueueBook.ID: NSImage] = [:]
     /// Test hook: books to show before the first scan finishes.
     var mockLibrary: [LibraryBook] = []
     private var activity: NSObjectProtocol?
@@ -94,8 +98,9 @@ final class AppModel {
         if env.isBuiltIn, let engine = BackendEnvironment.bundledEngine {
             engineSetup.check(engine: engine)
         }
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
             AppModel.flushQueueWrites()     // the last change to the queue must not be lost on quit
+            MainActor.assumeIsolated { self?.current?.terminate() }   // do not leave the engine running without the app
         }
         if deferStartup {
             Task { await startup() }
@@ -104,6 +109,38 @@ final class AppModel {
             library.reload(env: env)
             refreshEngines()
         }
+    }
+
+    /// Engines left running by an app that was killed (not quit) keep working on the same book behind the app's
+    /// back; they are stopped (the checkpoints keep the progress) before the queue takes over again.
+    nonisolated static func orphanEngines(psOutput: String, script: String) -> [Int32] {
+        psOutput.split(separator: "\n").compactMap { line -> Int32? in
+            let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard parts.count == 3, let pid = Int32(parts[0]), let parent = Int32(parts[1]), parent == 1 else { return nil }
+            let command = String(parts[2])
+            return command.contains(script) && command.contains("--books-dir") ? pid : nil
+        }
+    }
+
+    nonisolated static func reapOrphans(script: String) async {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,ppid=,command="]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        guard (try? process.run()) != nil else { return }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let pids = orphanEngines(psOutput: String(decoding: data, as: UTF8.self), script: script)
+        pids.forEach { kill($0, SIGTERM) }
+        if !pids.isEmpty { try? await Task.sleep(nanoseconds: 2_500_000_000) }
+    }
+
+    /// After a restart the queue goes on by itself, unless the user had paused it.
+    private func resumeAfterLaunch() async {
+        await Self.reapOrphans(script: env.script.path)
+        let runnable = books.contains { $0.stage == .queued || $0.stage == .approved }
+        if runnable, !UserDefaults.standard.bool(forKey: "queuePaused"), env.isReady { start() }
     }
 
     private func startup() async {
@@ -120,6 +157,7 @@ final class AppModel {
         applyQueue(outcome.1)
         library.reload(env: env)
         refreshEngines()
+        await resumeAfterLaunch()
     }
 
     // MARK: - Built-in engine
@@ -256,6 +294,7 @@ final class AppModel {
                     $0.reviewFirst = info.kind == .fiction
                     if $0.stage == .reading { $0.stage = .uploaded }
                 }
+                loadCover(for: id)
             } catch {
                 update(id) { if $0.stage == .reading { $0.stage = .uploaded } }
                 lastError = error.localizedDescription
@@ -427,6 +466,7 @@ final class AppModel {
             return
         }
         update(book.id) { $0.workdir = workdir; $0.stage = .needsReview }
+        loadCover(for: book.id)
         notify(Loc.shared.t("notify.review", book.title), Loc.shared.t("notify.reviewBody"))
     }
 
@@ -624,6 +664,31 @@ final class AppModel {
     private func applyQueue(_ saved: [QueueBook]) {
         guard !saved.isEmpty else { return }
         books = saved
+        saved.forEach { loadCover(for: $0.id) }
+    }
+
+    /// Reads the book's own cover from its EPUB, off the main thread: the file is in the inbox until the engine
+    /// files it under books/<book>/source.
+    func loadCover(for id: QueueBook.ID) {
+        guard queueCovers[id] == nil, let book = book(id) else { return }
+        let inbox = env.inbox.appendingPathComponent(book.fileName)
+        let source = book.workdir.map { env.booksDir.appendingPathComponent($0).appendingPathComponent("source") }
+        Task.detached(priority: .utility) {
+            let fm = FileManager.default
+            var candidates: [URL] = []
+            if let source, let names = try? fm.contentsOfDirectory(atPath: source.path) {
+                candidates += names.sorted().map { source.appendingPathComponent($0) }
+            }
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: inbox.path, isDirectory: &isDir) {
+                if isDir.boolValue, let names = try? fm.contentsOfDirectory(atPath: inbox.path) {
+                    candidates += names.sorted().map { inbox.appendingPathComponent($0) }
+                } else { candidates.append(inbox) }
+            }
+            guard let epub = candidates.first(where: { $0.pathExtension.lowercased() == "epub" }),
+                  let image = EpubReader.cover(epub) else { return }
+            await MainActor.run { self.queueCovers[id] = image }
+        }
     }
 
     // MARK: - Estimates and engines

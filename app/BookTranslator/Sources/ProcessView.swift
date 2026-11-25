@@ -11,6 +11,7 @@ struct ProcessView: View {
         VStack(alignment: .leading, spacing: 20) {
             if let running = model.running { runningCard(running) }
             else if model.paused, !model.queueList.isEmpty { pausedCard }
+            else if !model.isBusy, model.waitingCount > 0 { stalledCard }
             if model.queueList.isEmpty { empty }
             else if !waiting.isEmpty { queueTable }
             Spacer(minLength: 0)
@@ -32,6 +33,17 @@ struct ProcessView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.buttonLine, style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
     }
 
+    /// Books are queued but nothing runs (after a restart, or when an engine stopped): say so and offer the button.
+    private var stalledCard: some View {
+        CardBox(radius: 16) {
+            HStack {
+                Text(loc.t("process.stalled", model.waitingCount)).font(.system(size: 14, weight: .medium))
+                Spacer()
+                Button(loc.t("process.startQueue")) { model.start() }.buttonStyle(PrimaryButtonStyle(radius: 8))
+            }.padding(22)
+        }
+    }
+
     private var pausedCard: some View {
         CardBox(radius: 16) {
             HStack {
@@ -50,7 +62,7 @@ struct ProcessView: View {
         let tint = paused ? Theme.amber : Theme.accent
         return CardBox(radius: 16) {
             HStack(alignment: .top, spacing: 22) {
-                CoverView(title: book.title, width: 100, height: 144, radius: 6)
+                CoverView(title: book.title, image: model.queueCovers[book.id], width: 100, height: 144, radius: 6)
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(book.title).font(.system(size: 21, weight: .semibold))
@@ -158,7 +170,7 @@ private struct QueueRow: View {
         HStack(spacing: 14) {
             Text("\(position)").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.neutralText)
                 .frame(width: 22, height: 22).background(Theme.numCircle, in: Circle())
-            CoverView(title: book.title, width: 38, height: 54, radius: 4)
+            CoverView(title: book.title, image: model.queueCovers[book.id], width: 38, height: 54, radius: 4)
             VStack(alignment: .leading, spacing: 1) {
                 Text(book.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                 Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.volumes)) · \(loc.t("input.about", loc.minutes(book.estimatedMinutes)))")
