@@ -21,7 +21,7 @@ final class EngineSetup {
     init(supportDir: URL = EngineSetup.defaultSupportDir) { self.supportDir = supportDir }
 
     nonisolated static var defaultSupportDir: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Book Translator")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/NNAI Translator")
     }
     nonisolated static var pythonExecutable: URL { pythonExecutable(in: defaultSupportDir) }
     nonisolated static func pythonExecutable(in support: URL) -> URL {

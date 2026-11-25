@@ -22,10 +22,10 @@ xcodebuild -project BookTranslator.xcodeproj -scheme BookTranslator -configurati
   -destination 'generic/platform=macOS' -derivedDataPath "$DD" \
   ARCHS="$ARCHS" ONLY_ACTIVE_ARCH=NO build | tail -3
 
-BUILT="$DD/Build/Products/Release/BookTranslator.app"
+BUILT="$DD/Build/Products/Release/NNAI Translator.app"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$BUILT/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$BUILT/Contents/Info.plist")
-NAME="Book Translator"
+NAME="NNAI Translator"
 
 mkdir -p "$OUT"
 STAGE="$(mktemp -d)"
@@ -35,14 +35,14 @@ xattr -cr "$STAGE/$NAME.app"
 codesign --force --deep --sign - "$STAGE/$NAME.app"
 codesign --verify --deep --strict "$STAGE/$NAME.app"
 
-ZIP="$OUT/BookTranslator-$VERSION.zip"
-DMG="$OUT/BookTranslator-$VERSION.dmg"
+ZIP="$OUT/NNAI-Translator-$VERSION.zip"
+DMG="$OUT/NNAI-Translator-$VERSION.dmg"
 rm -f "$ZIP" "$DMG"
 ditto -c -k --sequesterRsrc --keepParent "$STAGE/$NAME.app" "$ZIP"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -quiet -volname "$NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 
-echo "Version $VERSION ($BUILD), architectures: $(lipo -archs "$STAGE/$NAME.app/Contents/MacOS/BookTranslator")"
+echo "Version $VERSION ($BUILD), architectures: $(lipo -archs "$STAGE/$NAME.app/Contents/MacOS/$NAME")"
 echo "Engine inside the app: $(du -sh "$STAGE/$NAME.app/Contents/Resources/engine" | cut -f1) (its Python libraries are installed on first launch)"
 echo "$DMG"
 echo "$ZIP"
