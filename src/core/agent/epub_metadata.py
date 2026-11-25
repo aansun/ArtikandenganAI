@@ -155,6 +155,131 @@ def finalize_metadata(epub_path: Path, *, series: str = "", volume: int = 0, vol
     tmp.replace(epub_path)
 
 
+_EDITABLE = {"title": "dc:title", "creator": "dc:creator", "description": "dc:description",
+             "publisher": "dc:publisher", "date": "dc:date", "subject": "dc:subject",
+             "language": "dc:language"}
+
+
+def edit_field(epub_path: Path, field: str, value: str, *, volume: int = 0, volume_count: int = 1) -> None:
+    """Set one metadata field of a finished EPUB (the Mac app's "Change" button).
+
+    ``field`` is title, creator, description, publisher, date, subject, language or series;
+    an empty ``value`` removes the field; several subjects or authors are separated by "|".
+    ``isbn`` adds an identifier and ``cover`` takes the path of an image. A title is written
+    to the NCX as well.
+    """
+    if field == "series":
+        finalize_metadata(epub_path, series=value, volume=volume or 1, volume_count=max(volume_count, 2))
+        return
+    if field == "cover":
+        _set_cover(Path(epub_path), Path(value))
+        return
+    if field == "isbn":
+        _add_isbn(Path(epub_path), value)
+        return
+    if field not in _EDITABLE:
+        raise ValueError(f"unknown metadata field: {field}")
+    if field == "title" and value:
+        finalize_metadata(epub_path, title=value)
+        return
+    epub_path = Path(epub_path)
+    with zipfile.ZipFile(epub_path) as z:
+        opf_path, root = _open_opf(z)
+        metadata = root.find("opf:metadata", _NS)
+        if metadata is None:
+            return
+        _drop(metadata, f"{_EDITABLE[field]}")
+        # Several subjects (or authors) are given separated by "|".
+        for part in ([v.strip() for v in value.split("|") if v.strip()] if value else []):
+            prefix, name = _EDITABLE[field].split(":")
+            etree.SubElement(metadata, f"{{{DC}}}{name}").text = part
+        data = etree.tostring(root, xml_declaration=True, encoding="utf-8")
+        tmp = epub_path.with_suffix(".tmp")
+        with zipfile.ZipFile(tmp, "w") as out:
+            if "mimetype" in z.namelist():
+                out.writestr("mimetype", z.read("mimetype"), compress_type=zipfile.ZIP_STORED)
+            for info in z.infolist():
+                if info.filename == "mimetype" or info.filename.endswith("/"):
+                    continue
+                out.writestr(info.filename, data if info.filename == opf_path else z.read(info.filename),
+                             compress_type=zipfile.ZIP_DEFLATED)
+    tmp.replace(epub_path)
+
+
+def _rewrite(epub_path: Path, opf_bytes: bytes, opf_path: str, extra: dict) -> None:
+    """Write ``epub_path`` again with a new OPF and extra files (path -> bytes)."""
+    tmp = epub_path.with_suffix(".tmp")
+    with zipfile.ZipFile(epub_path) as z, zipfile.ZipFile(tmp, "w") as out:
+        if "mimetype" in z.namelist():
+            out.writestr("mimetype", z.read("mimetype"), compress_type=zipfile.ZIP_STORED)
+        for info in z.infolist():
+            if info.filename == "mimetype" or info.filename.endswith("/") or info.filename in extra:
+                continue
+            out.writestr(info.filename, opf_bytes if info.filename == opf_path else z.read(info.filename),
+                         compress_type=zipfile.ZIP_DEFLATED)
+        for name, data in extra.items():
+            out.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
+    tmp.replace(epub_path)
+
+
+def _add_isbn(epub_path: Path, isbn: str) -> None:
+    """Add the ISBN as one more identifier (the book's own unique identifier is kept)."""
+    digits = "".join(ch for ch in isbn if ch.isdigit() or ch in "xX")
+    if not digits:
+        return
+    with zipfile.ZipFile(epub_path) as z:
+        opf_path, root = _open_opf(z)
+        metadata = root.find("opf:metadata", _NS)
+        if metadata is None:
+            return
+        for el in metadata.findall("dc:identifier", _NS):
+            if "".join(ch for ch in (el.text or "") if ch.isdigit() or ch in "xX") == digits:
+                return
+        ident = etree.SubElement(metadata, f"{{{DC}}}identifier")
+        ident.text = f"urn:isbn:{digits}"
+        data = etree.tostring(root, xml_declaration=True, encoding="utf-8")
+    _rewrite(epub_path, data, opf_path, {})
+
+
+_COVER_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif"}
+
+
+def _set_cover(epub_path: Path, image: Path) -> None:
+    """Make ``image`` the cover: a manifest item flagged cover-image, plus the EPUB 2 meta."""
+    media = _COVER_TYPES.get(image.suffix.lower())
+    if not media:
+        raise ValueError("a cover must be a .jpg, .png or .gif file")
+    with zipfile.ZipFile(epub_path) as z:
+        opf_path, root = _open_opf(z)
+        metadata = root.find("opf:metadata", _NS)
+        manifest = root.find("opf:manifest", _NS)
+        if metadata is None or manifest is None:
+            return
+        opf_dir = posixpath.dirname(opf_path)
+        name = f"cover-online{image.suffix.lower()}"
+        href = posixpath.join(opf_dir, name) if opf_dir else name
+        old_ids = set()
+        for item in list(manifest):
+            if "cover-image" in (item.get("properties") or ""):
+                props = [p for p in item.get("properties").split() if p != "cover-image"]
+                if props:
+                    item.set("properties", " ".join(props))
+                else:
+                    del item.attrib["properties"]
+                old_ids.add(item.get("id"))
+        _drop(metadata, "opf:meta[@name='cover']")
+        if manifest.find("opf:item[@id='cover-online']", _NS) is not None:
+            manifest.remove(manifest.find("opf:item[@id='cover-online']", _NS))
+        item = etree.SubElement(manifest, f"{{{OPF}}}item")
+        item.set("id", "cover-online")
+        item.set("href", name)
+        item.set("media-type", media)
+        item.set("properties", "cover-image")
+        _meta(metadata, name="cover", content="cover-online")
+        data = etree.tostring(root, xml_declaration=True, encoding="utf-8")
+    _rewrite(epub_path, data, opf_path, {href: image.read_bytes()})
+
+
 def _strip_attribution(root, metadata, opf_dir: str) -> set:
     """Remove the engine's translator signature from the OPF; return files to drop."""
     sig = re.compile(r"\s*Translated using " + re.escape(GENERATOR_NAME) + r".*$", re.DOTALL)
