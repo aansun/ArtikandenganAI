@@ -112,9 +112,10 @@ final class EngineSetup {
             }
             guard code == 0 else { throw SetupError("installing the engine's libraries failed: \(pip.last)") }
 
-            // The engine must start with them: --help imports everything the real run needs.
+            // The engine must start with them, and carry every module a real run imports (--help would not notice
+            // a missing one: that is how a packaged engine once failed on its first book).
             let check = LineBox()
-            code = await Self.run(python, [engine.appendingPathComponent("translate_book.py").path, "--help"], cwd: supportDir, onLine: check.add)
+            code = await Self.run(python, [engine.appendingPathComponent("translate_book.py").path, "--selfcheck"], cwd: supportDir, onLine: check.add)
             guard code == 0 else { throw SetupError("the engine did not start: \(check.last)") }
 
             try Self.stamp(engine: engine).write(to: marker, atomically: true, encoding: .utf8)

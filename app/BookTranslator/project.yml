@@ -8,7 +8,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "3"
+    CURRENT_PROJECT_VERSION: "4"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "-"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -40,7 +40,7 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/engine"
           rm -rf "$DEST" && mkdir -p "$DEST"
           rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store' "$ENGINE/src" "$DEST/"
-          cp "$ENGINE/translate_book.py" "$ENGINE/requirements.txt" "$DEST/"
+          cp "$ENGINE/translate_book.py" "$ENGINE/translate.py" "$ENGINE/requirements.txt" "$DEST/"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aansun.BookTranslator

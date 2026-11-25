@@ -78,6 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--inspect", metavar="FILE",
                    help="Print what the app shows for a book (title, volumes, fiction or not, "
                         "estimated time) as JSON and exit.")
+    p.add_argument("--selfcheck", action="store_true",
+                   help="Import every module a run needs (some are only imported when a book is translated) "
+                        "and exit 0 if they are all there. Used after installing the engine.")
     p.add_argument("--set-metadata", metavar="BOOK_FOLDER",
                    help="Set one metadata field of every translated volume of a book and exit "
                         "(with --field and --value; an empty --value removes the field).")
@@ -204,6 +207,27 @@ def _inspect(parser, args, root, order) -> int:
     return 0
 
 
+def _selfcheck() -> int:
+    """A packaged engine can miss a file that only a real translation imports (``--help`` would not notice)."""
+    import importlib
+    names = ["translate", "src.core.job.runner", "src.core.agent.pipeline", "src.core.agent.engines",
+             "src.core.agent.glossary_builder", "src.core.agent.style", "src.core.agent.qa",
+             "src.core.agent.epub_metadata", "src.core.agent.intake", "src.core.agent.inspect_book",
+             "src.core.llm.providers.claude_cli", "src.core.llm.providers.codex_cli",
+             "src.core.llm.providers.agy", "src.core.llm.providers.chain"]
+    missing = []
+    for name in names:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:  # noqa: BLE001 - any failure to import is what we report
+            missing.append(f"{name}: {exc}")
+    if missing:
+        print("[agent] selfcheck failed:\n  " + "\n  ".join(missing), file=sys.stderr)
+        return 1
+    print("[agent] selfcheck ok", flush=True)
+    return 0
+
+
 def _set_metadata(parser, args, root) -> int:
     from src.core.agent.epub_metadata import edit_field
     folder = Path(args.set_metadata)
@@ -232,6 +256,8 @@ def main(argv=None) -> int:
     root = library.books_root(args.books_dir)
     order = [e.strip() for e in args.engines.split(",") if e.strip()] or None
 
+    if args.selfcheck:
+        return _selfcheck()
     if args.detect:
         found = engines_mod.detect_engines(order, cache_path=root / ".engines.json",
                                            refresh=args.refresh_engines)

@@ -27,6 +27,14 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$BUILT
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$BUILT/Contents/Info.plist")
 NAME="NNAI Translator"
 
+# The engine inside the app must be complete: run its self-check from a clean copy of the bundled files, with
+# the repository's own Python environment, so a missing file fails the packaging instead of the user's first book.
+CHECK="$(mktemp -d)"
+cp -R "$BUILT/Contents/Resources/engine" "$CHECK/engine"
+( cd "$CHECK" && PYTHONDONTWRITEBYTECODE=1 "$ROOT/.venv/bin/python3" "$CHECK/engine/translate_book.py" --selfcheck ) \
+  || { echo "the engine bundled in the app is incomplete" >&2; rm -rf "$CHECK"; exit 1; }
+rm -rf "$CHECK"
+
 mkdir -p "$OUT"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
