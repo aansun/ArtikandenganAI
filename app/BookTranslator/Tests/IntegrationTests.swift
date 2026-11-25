@@ -108,3 +108,38 @@ final class EditMetadataTests: XCTestCase {
         XCTAssertNotNil(bad)          // a failure is reported, not swallowed
     }
 }
+
+/// Builds the built-in engine's Python environment for real (needs the internet and a Python 3.10+) and runs
+/// the engine from it. Opt-in: BT_SETUP_TEST=1.
+@MainActor
+final class RealSetupTests: XCTestCase {
+    func testInstallAndRunTheBundledEngine() async throws {
+        guard ProcessInfo.processInfo.environment["BT_SETUP_TEST"] == "1" else { throw XCTSkip("BT_SETUP_TEST not set") }
+        let engine = try XCTUnwrap(BackendEnvironment.bundledEngine, "this build has no engine inside it")
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("bt-real-setup-\(UUID().uuidString)")
+        let setup = EngineSetup(supportDir: tmp.appendingPathComponent("support"))
+        setup.check(engine: engine)
+        XCTAssertEqual(setup.state, .needsSetup)
+
+        let started = Date()
+        await setup.install(engine: engine)
+        print("SETUP state", setup.state, "in", Int(Date().timeIntervalSince(started)), "s, libraries seen:", setup.stepsDone)
+        XCTAssertEqual(setup.state, .ready)
+        setup.check(engine: engine)
+        XCTAssertEqual(setup.state, .ready)
+
+        var env = BackendEnvironment(root: engine, booksDir: tmp.appendingPathComponent("books"))
+        env.pythonOverride = setup.python
+        env.workDir = setup.supportDir
+        env.isBuiltIn = true
+        XCTAssertTrue(env.isReady)
+        let engines = try await BackendClient.detect(env, refresh: true)
+        print("ENGINES from the built-in engine:", engines.map { "\($0.name):\($0.active)" })
+        XCTAssertEqual(engines.count, 3)
+
+        // The engine runs read-only: nothing may be written into the app bundle.
+        let leftovers = (FileManager.default.enumerator(at: engine, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
+            .filter { $0.pathExtension == "pyc" || $0.lastPathComponent == "__pycache__" }
+        XCTAssertTrue(leftovers.isEmpty, "wrote into the bundle: \(leftovers.map(\.path))")
+    }
+}

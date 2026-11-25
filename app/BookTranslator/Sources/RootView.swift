@@ -41,6 +41,7 @@ struct RootView: View {
                 }
             }.withoutGlass()
         }
+        .overlay { if model.needsEngineSetup { EngineSetupView() } }
         .toolbarBackground(Theme.bar, for: .windowToolbar)
         .toolbarBackground(.visible, for: .windowToolbar)
         .navigationTitle(loc.t("app.title"))

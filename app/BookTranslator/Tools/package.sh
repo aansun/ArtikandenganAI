@@ -43,6 +43,6 @@ ln -s /Applications "$STAGE/Applications"
 hdiutil create -quiet -volname "$NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 
 echo "Version $VERSION ($BUILD), architectures: $(lipo -archs "$STAGE/$NAME.app/Contents/MacOS/BookTranslator")"
-echo "Engine folder baked into the app: $(/usr/libexec/PlistBuddy -c 'Print :BTBackendRoot' "$STAGE/$NAME.app/Contents/Info.plist")"
+echo "Engine inside the app: $(du -sh "$STAGE/$NAME.app/Contents/Resources/engine" | cut -f1) (its Python libraries are installed on first launch)"
 echo "$DMG"
 echo "$ZIP"

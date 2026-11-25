@@ -80,6 +80,13 @@ final class SnapshotTests: XCTestCase {
         for width in [1180, 980, 940, 760] {
             try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "9-library-w\(width)", size: CGSize(width: width, height: 330), dark: true)
         }
+        m.env.isBuiltIn = true
+        for (name, state) in [("needs", EngineSetup.State.needsSetup), ("working", .working), ("nopython", .noPython), ("failed", .failed("pip could not reach the internet"))] {
+            m.engineSetup.state = state
+            if state == .working { m.engineSetup.progress = "Collecting lxml"; m.engineSetup.stepsDone = 12 }
+            try render(env(EngineSetupView(), m), name: "B-setup-\(name)", size: CGSize(width: 900, height: 420), dark: name == "failed")
+        }
+        m.env.isBuiltIn = false
         // Narrowest window, Indonesian (the longer labels), every main screen.
         Loc.shared.language = .id
         let narrow = CGSize(width: 940, height: 640)
