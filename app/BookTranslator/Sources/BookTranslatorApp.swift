@@ -15,10 +15,13 @@ struct BookTranslatorApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1180, height: 760)
         .commands {
-            CommandGroup(replacing: .appInfo) {
-                Button(loc.t("about.menu")) { AboutPanel.show(loc) }
-            }
+            CommandGroup(replacing: .appInfo) { AboutMenuButton().environment(loc) }
         }
+
+        Window("NNAI Translator", id: "about") {
+            AboutView().environment(loc).environment(appearance)
+        }
+        .windowResizability(.contentSize)
 
         Settings {
             SettingsView()

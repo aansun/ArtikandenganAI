@@ -31,7 +31,7 @@ order, and they are translated one after another while you do something else.
 The app is signed ad hoc, not notarised. If macOS refuses to open a downloaded copy, right-click the app
 and choose **Open** once.
 
-Requires macOS 14 or newer. To build it yourself: `app/BookTranslator/Tools/package.sh`
+Requires macOS 14 or newer. How the app works and its known limits are in its About window. To build it yourself: `app/BookTranslator/Tools/package.sh`
 (details in [app/BookTranslator/README.md](app/BookTranslator/README.md)).
 
 ## Command line

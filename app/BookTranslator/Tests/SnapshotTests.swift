@@ -80,6 +80,8 @@ final class SnapshotTests: XCTestCase {
         for width in [1180, 980, 940, 760] {
             try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "9-library-w\(width)", size: CGSize(width: width, height: 330), dark: true)
         }
+        try render(env(AboutView(), m), name: "C-about", size: CGSize(width: 540, height: 680))
+        try render(env(AboutView(), m), name: "C-about-dark", size: CGSize(width: 540, height: 680), dark: true)
         m.env.isBuiltIn = true
         for (name, state) in [("needs", EngineSetup.State.needsSetup), ("working", .working), ("nopython", .noPython), ("failed", .failed("pip could not reach the internet"))] {
             m.engineSetup.state = state
