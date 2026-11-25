@@ -14,7 +14,7 @@ struct SettingsView: View {
         @Bindable var updater = updater
         ScrollView {
             VStack(spacing: 16) {
-                if !model.env.isValid { warning }
+                if !model.env.isReady && !model.env.isBuiltIn { warning }
 
                 group {
                     row(loc.t("settings.appearance"), loc.t("settings.appearanceHint")) {
@@ -54,10 +54,23 @@ struct SettingsView: View {
                         }
                     }
                     divider
-                    row(loc.t("settings.backend"), model.env.root.path) {
-                        Button(loc.t("settings.change")) { chooseFolder(model.env.root) { url in
-                            UserDefaults.standard.set(url.path, forKey: "backendRoot"); model.env.root = url; model.refreshEngines(force: true)
-                        } }.buttonStyle(GhostButtonStyle())
+                    if model.env.isBuiltIn {
+                        row(loc.t("settings.backend"), model.engineSetup.state == .ready ? loc.t("settings.engineBuiltIn") : loc.t("settings.engineNotReady")) {
+                            HStack {
+                                Button(loc.t("settings.engineRepair")) { model.repairEngine() }.buttonStyle(GhostButtonStyle())
+                                    .disabled(model.engineSetup.state == .working)
+                                Button(loc.t("settings.engineUseFolder")) { model.chooseDeveloperFolder() }.buttonStyle(GhostButtonStyle())
+                            }
+                        }
+                    } else {
+                        row(loc.t("settings.backend"), model.env.root.path) {
+                            HStack {
+                                if BackendEnvironment.bundledEngine != nil {
+                                    Button(loc.t("settings.engineUseBuiltIn")) { model.useBuiltInEngine() }.buttonStyle(GhostButtonStyle())
+                                }
+                                Button(loc.t("settings.change")) { model.chooseDeveloperFolder() }.buttonStyle(GhostButtonStyle())
+                            }
+                        }
                     }
                     divider
                     row(loc.t("settings.addToBooks"), loc.t("settings.addToBooksHint")) { Toggle("", isOn: $model.addToBooks).labelsHidden().toggleStyle(.switch).tint(Theme.green) }

@@ -43,6 +43,7 @@ final class AppModel {
     var runningID: QueueBook.ID?
     var lastError = ""
     let library = LibraryStore()
+    let engineSetup = EngineSetup()
 
     var quality: String = UserDefaults.standard.string(forKey: "quality") ?? "balanced" {
         didSet { UserDefaults.standard.set(quality, forKey: "quality") }
@@ -89,7 +90,57 @@ final class AppModel {
         self.env.engineOrder = UserDefaults.standard.stringArray(forKey: "engineOrder") ?? []
         loadQueue()
         library.reload(env: env)
+        if env.isBuiltIn, let engine = BackendEnvironment.bundledEngine {
+            engineSetup.check(engine: engine)
+        }
         refreshEngines()
+    }
+
+    // MARK: - Built-in engine
+
+    /// The window shows the setup screen while the built-in engine has no Python environment yet.
+    var needsEngineSetup: Bool { env.isBuiltIn && engineSetup.state != .ready && engineSetup.state != .unknown }
+
+    /// Create (or repair) the built-in engine's Python environment, then use it.
+    func runSetup() {
+        guard let engine = BackendEnvironment.bundledEngine else { return }
+        Task {
+            await engineSetup.install(engine: engine)
+            if engineSetup.state == .ready { refreshEngines(force: true) }
+        }
+    }
+
+    /// Throw the environment away and build it again.
+    func repairEngine() {
+        guard let engine = BackendEnvironment.bundledEngine else { return }
+        try? FileManager.default.removeItem(at: engineSetup.venv)
+        engineSetup.check(engine: engine)
+        runSetup()
+    }
+
+    /// Developer option: run a repository folder instead of the engine built into the app.
+    func chooseDeveloperFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = Loc.shared.t("settings.engineFolderHint")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard FileManager.default.fileExists(atPath: url.appendingPathComponent("translate_book.py").path) else {
+            lastError = Loc.shared.t("settings.backendMissing")
+            return
+        }
+        UserDefaults.standard.set(url.path, forKey: "backendRoot")
+        env = BackendEnvironment.load()
+        library.reload(env: env, force: true)
+        refreshEngines(force: true)
+    }
+
+    func useBuiltInEngine() {
+        UserDefaults.standard.removeObject(forKey: "backendRoot")
+        env = BackendEnvironment.load()
+        if let engine = BackendEnvironment.bundledEngine { engineSetup.check(engine: engine) }
+        library.reload(env: env, force: true)
+        refreshEngines(force: true)
     }
 
     // MARK: - Derived
@@ -123,7 +174,7 @@ final class AppModel {
     // MARK: - Engines
 
     func refreshEngines(force: Bool = false, reorder: Bool = false) {
-        guard !enginesLoading, env.isValid else { return }
+        guard !enginesLoading, env.isReady else { return }
         enginesLoading = true
         let env = self.env
         Task {
@@ -275,7 +326,7 @@ final class AppModel {
     func start() {
         paused = false
         guard runner == nil else { return }
-        guard env.isValid else { lastError = Loc.shared.t("settings.backendMissing"); return }
+        guard env.isReady else { lastError = Loc.shared.t(env.isBuiltIn ? "setup.title" : "settings.backendMissing"); return }
         runner = Task { await runLoop(); runner = nil }
     }
 
@@ -490,7 +541,7 @@ final class AppModel {
 
     /// Translate a finished book again (`--redo`) or repair its metadata, as one more queue run.
     func runMaintenance(folder: String, arguments: [String]) {
-        guard runner == nil, env.isValid else { return }
+        guard runner == nil, env.isReady else { return }
         let source = env.booksDir.appendingPathComponent(folder).appendingPathComponent("source")
         guard let first = (try? FileManager.default.contentsOfDirectory(atPath: source.path))?.sorted().first else { return }
         var book = QueueBook(fileName: first, title: library.book(folder: folder)?.title ?? folder)

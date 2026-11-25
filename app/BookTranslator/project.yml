@@ -29,6 +29,16 @@ targets:
         BTBackendRoot: "$(SRCROOT)/../.."
         # Latest-release JSON of the project's repository (GitHub releases API).
         BTUpdateFeed: "https://api.github.com/repos/aansun/ArtikandenganAI/releases/latest"
+    postBuildScripts:
+      - name: Bundle the translation engine
+        basedOnDependencyAnalysis: false
+        script: |
+          # The engine's source (not its Python libraries) travels inside the app; see EngineSetup.
+          ENGINE="${SRCROOT}/../.."
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/engine"
+          rm -rf "$DEST" && mkdir -p "$DEST"
+          rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store' "$ENGINE/src" "$DEST/"
+          cp "$ENGINE/translate_book.py" "$ENGINE/requirements.txt" "$DEST/"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aansun.BookTranslator

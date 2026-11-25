@@ -309,3 +309,43 @@ final class CoverFetcherTests: XCTestCase {
         XCTAssertTrue(CoverFetcher.isRealImage(Data([0x89, 0x50, 0x4E, 0x47]) + Data(repeating: 0, count: 5_000)))
     }
 }
+
+@MainActor
+final class EngineSetupTests: XCTestCase {
+    func testVersionRules() {
+        XCTAssertEqual(EngineSetup.parseVersion("3.13\n")?.1, 13)
+        XCTAssertNil(EngineSetup.parseVersion("nonsense"))
+        XCTAssertTrue(EngineSetup.isSuitable((3, 10)))
+        XCTAssertTrue(EngineSetup.isSuitable((3, 13)))
+        XCTAssertFalse(EngineSetup.isSuitable((3, 9)))
+        XCTAssertFalse(EngineSetup.isSuitable((2, 7)))
+    }
+
+    func testStateFollowsTheMarkerAndRequirements() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("bt-setup-\(UUID().uuidString)")
+        let engine = tmp.appendingPathComponent("engine")
+        try FileManager.default.createDirectory(at: engine, withIntermediateDirectories: true)
+        try "requests\n".write(to: engine.appendingPathComponent("requirements.txt"), atomically: true, encoding: .utf8)
+        let setup = EngineSetup(supportDir: tmp.appendingPathComponent("support"))
+        setup.check(engine: engine)
+        XCTAssertEqual(setup.state, .needsSetup)
+
+        // A finished environment: a python and a marker with this build's stamp.
+        try FileManager.default.createDirectory(at: setup.python.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: setup.python.path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+        try EngineSetup.stamp(engine: engine).write(to: setup.venv.appendingPathComponent(".bt-ready"), atomically: true, encoding: .utf8)
+        setup.check(engine: engine)
+        XCTAssertEqual(setup.state, .ready)
+
+        // The engine's requirements changed in a new app version: the environment must be rebuilt.
+        try "requests\nlxml\n".write(to: engine.appendingPathComponent("requirements.txt"), atomically: true, encoding: .utf8)
+        setup.check(engine: engine)
+        XCTAssertEqual(setup.state, .needsSetup)
+    }
+
+    func testBuiltInModeNeedsAPython() {
+        var env = BackendEnvironment(root: URL(fileURLWithPath: "/tmp"), booksDir: URL(fileURLWithPath: "/tmp/b"))
+        env.pythonOverride = URL(fileURLWithPath: "/nonexistent/python3")
+        XCTAssertFalse(env.isReady)
+    }
+}
