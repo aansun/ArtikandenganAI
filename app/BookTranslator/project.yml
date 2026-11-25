@@ -23,14 +23,14 @@ targets:
       properties:
         CFBundleDisplayName: NNAI Translator
         CFBundleName: NNAI Translator
-        NSHumanReadableCopyright: "GNU AGPL-3.0. Source: https://github.com/aansun/ArtikandenganAI"
+        NSHumanReadableCopyright: "GNU AGPL-3.0. Source: https://github.com/aansun/NNAI-Translator"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.productivity
         # Where the Python engine lives; the app asks for it once if this is wrong.
         BTBackendRoot: "$(SRCROOT)/../.."
         # Latest-release JSON of the project's repository (GitHub releases API).
-        BTUpdateFeed: "https://api.github.com/repos/aansun/ArtikandenganAI/releases/latest"
+        BTUpdateFeed: "https://api.github.com/repos/aansun/NNAI-Translator/releases/latest"
     postBuildScripts:
       - name: Bundle the translation engine
         basedOnDependencyAnalysis: false

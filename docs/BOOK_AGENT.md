@@ -1,4 +1,4 @@
-# Book Translator Agent
+# NNAI Translator: the book agent
 
 `translate_book.py` translates whole books into Indonesian (by default) with the command line
 tools you already have signed in to: `claude`, `codex` and `agy`. It is a layer on top of the

@@ -354,7 +354,7 @@ final class EngineSetupTests: XCTestCase {
 
 final class AboutTests: XCTestCase {
     func testAboutLinksAndEveryTextExists() {
-        XCTAssertEqual(AboutPanel.repositoryURL.absoluteString, "https://github.com/aansun/ArtikandenganAI")
+        XCTAssertEqual(AboutPanel.repositoryURL.absoluteString, "https://github.com/aansun/NNAI-Translator")
         for key in AboutContent.hood + AboutContent.limits + ["about.buy.title", "about.buy.body", "about.license"] {
             XCTAssertNotNil(Loc.table[key], key)
         }

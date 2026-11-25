@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AboutPanel {
-    static let repositoryURL = URL(string: "https://github.com/aansun/ArtikandenganAI")!
+    static let repositoryURL = URL(string: "https://github.com/aansun/NNAI-Translator")!
 }
 
 /// What the About window lists, as keys of the string table.
