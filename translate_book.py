@@ -1,0 +1,270 @@
+"""
+Book translator agent (command line).
+
+Translates whole books into Indonesian by default. Translation runs on the
+``claude`` CLI (Sonnet at most; ``--translate-provider agy-claude`` puts the Antigravity
+CLI first), and the glossary of a fiction book is built first on Claude Sonnet. A multi-volume file is split per
+volume. See docs/BOOK_AGENT.md.
+
+    python translate_book.py                    # translate everything in books/inbox
+    python translate_book.py -i novel.epub      # one book
+    python translate_book.py --glossary-only    # review the glossary first
+    python translate_book.py --watch            # worker mode (cloud)
+
+Uploads go in ``books/inbox``; each book then gets its own folder under
+``books/`` with ``source/``, ``translation/`` and ``book.json``; ``books/INDEX.md``
+lists them all.
+"""
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from dataclasses import asdict
+
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# The settings file of the repository, whatever the working directory (the cloud worker runs
+# from its data folder). Variables already set in the environment win.
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+from src.utils.console import ensure_utf8_stdio  # noqa: E402
+
+ensure_utf8_stdio()
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+from src.core.agent import AgentOptions, BookAgent, engines as engines_mod, library, parse_volume_selection  # noqa: E402
+from src.core.agent.routing import (  # noqa: E402
+    DEFAULT_TRANSLATE_PROVIDER, PROFILES, PROVIDER_AGY_CLAUDE, PROVIDER_AUTO, PROVIDER_CLAUDE,
+    TRANSLATE_PROVIDERS, check_allowed)
+from src.core.llm.providers.agy import find_agy_executable  # noqa: E402
+from src.core.llm.providers.claude_cli import find_claude_executable  # noqa: E402
+
+WATCH_POLL_SECONDS = 30
+WATCH_SETTLE_SECONDS = 15        # an upload untouched this long is complete
+WATCH_RETRY_SECONDS = 30 * 60    # wait before retrying an unfinished book
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Translate books (EPUB, TXT, or a folder of volumes) into Indonesian by default, "
+                    "with the claude CLI. See docs/BOOK_AGENT.md.")
+    p.add_argument("-i", "--input",
+                   help="A book file, or a folder holding one file per volume. Default: "
+                        "everything in books/inbox.")
+    p.add_argument("--watch", action="store_true",
+                   help="Worker mode: keep translating whatever lands in books/inbox, forever, "
+                        "and retry unfinished books.")
+    p.add_argument("--books-dir", help="Library folder (default: ./books, or $BOOKS_DIR).")
+    p.add_argument("--workdir", help="Use this book folder instead of books/<book name>.")
+    p.add_argument("-tl", "--target-lang", default="Indonesian",
+                   help="Target language (default: Indonesian).")
+    p.add_argument("-sl", "--source-lang", help="Source language (default: detected).")
+    p.add_argument("--translate-provider", choices=TRANSLATE_PROVIDERS,
+                   default=DEFAULT_TRANSLATE_PROVIDER,
+                   help="auto (default): every active engine of claude, codex and agy; the first "
+                        "is the main one and the others are backups. Or force one: claude-cli, "
+                        "codex, agy, or agy-claude (agy first, claude as backup).")
+    p.add_argument("--engines", default=os.getenv("AGENT_ENGINES", ""),
+                   help="With auto: the engines to consider and their order, e.g. codex,claude "
+                        "(default: claude,codex,agy, or $AGENT_ENGINES).")
+    p.add_argument("--refresh-engines", action="store_true",
+                   help="Probe the engines again instead of using the result kept a few minutes.")
+    p.add_argument("--detect", action="store_true",
+                   help="Print the engines found on this machine as JSON and exit.")
+    p.add_argument("--inspect", metavar="FILE",
+                   help="Print what the app shows for a book (title, volumes, fiction or not, "
+                        "estimated time) as JSON and exit.")
+    p.add_argument("--set-metadata", metavar="BOOK_FOLDER",
+                   help="Set one metadata field of every translated volume of a book and exit "
+                        "(with --field and --value; an empty --value removes the field).")
+    p.add_argument("--field", help="Metadata field for --set-metadata: title, creator, description, "
+                                   "publisher, date, subject, language or series.")
+    p.add_argument("--value", default="", help="New value for --set-metadata.")
+    p.add_argument("--profile", choices=PROFILES, default="balanced",
+                   help="Quality/cost trade-off for model routing (default: balanced).")
+    p.add_argument("-m", "--model",
+                   help="Force the primary translation model (an `agy models` id, or a claude "
+                        "alias with --translate-provider claude-cli). opus is refused.")
+    p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"],
+                   help="--effort level passed to the CLIs (default: their own).")
+    fic = p.add_mutually_exclusive_group()
+    fic.add_argument("--fiction", dest="fiction", action="store_true", default=None,
+                     help="Treat the book as fiction (glossary first), whatever the classifier says.")
+    fic.add_argument("--non-fiction", dest="fiction", action="store_false",
+                     help="Treat the book as non-fiction (no glossary).")
+    p.add_argument("--style", choices=["auto", "formal", "santai", "sastra"], default="auto",
+                   help="Translation style: auto picks the one recommended from the book's content "
+                        "(default); formal, santai (casual) or sastra (literary) forces it.")
+    p.add_argument("--glossary", help="Use this glossary file (.json/.csv) instead of building one.")
+    p.add_argument("--glossary-only", "--prepare-only", dest="glossary_only", action="store_true",
+                   help="Stop after the preparation (glossary.json, style.md, calibration.md) so "
+                        "it can be reviewed and edited.")
+    p.add_argument("--no-split", action="store_true", help="Do not split the book into volumes.")
+    p.add_argument("--redo", action="store_true",
+                   help="Translate the volumes again (all, or those of --volumes) with the current "
+                        "glossary.json and style.md; the old files are kept in <book>/previous/.")
+    p.add_argument("--volume-pattern", help="Regex a TOC entry / heading must match to open a volume.")
+    p.add_argument("--volumes", help="Translate only these volumes, e.g. 1-3,5.")
+    p.add_argument("--translate-title", dest="keep_original_title", action="store_false",
+                   help="Translate the book title. By default the title stays in the source "
+                        "language, in the EPUB metadata and the series name.")
+    p.add_argument("--refresh-metadata", action="store_true",
+                   help="Do not translate: redo the metadata (title, series, attribution) of "
+                        "the volumes already translated.")
+    refine = p.add_mutually_exclusive_group()
+    refine.add_argument("--refine", dest="refine", action="store_true", default=None,
+                        help="Polish pass after translation. Default: on for fiction.")
+    refine.add_argument("--no-refine", dest="refine", action="store_false",
+                        help="Skip the polish pass (halves the number of calls).")
+    p.add_argument("--chunk-tokens", type=int, default=1800,
+                   help="Tokens per translation chunk (default: 1800).")
+    p.add_argument("--parallel", type=int, default=1,
+                   help="Concurrent chunks per volume (default: 1; >1 drops cross-chunk context).")
+    return p
+
+
+def _options(args, input_path: Path, root: Path) -> AgentOptions:
+    return AgentOptions(
+        input_path=input_path, books_dir=root,
+        workdir=Path(args.workdir) if args.workdir else None,
+        target_language=args.target_lang, source_language=args.source_lang,
+        profile=args.profile, translate_provider=args.translate_provider, model=args.model,
+        glossary_path=Path(args.glossary) if args.glossary else None, fiction=args.fiction,
+        split=not args.no_split, volume_pattern=args.volume_pattern,
+        only_volumes=parse_volume_selection(args.volumes) if args.volumes else None,
+        redo=args.redo,
+        engines=[e.strip() for e in args.engines.split(",") if e.strip()] or None,
+        refresh_engines=args.refresh_engines, style=args.style,
+        glossary_only=args.glossary_only, refine=args.refine,
+        keep_original_title=args.keep_original_title, refresh_metadata=args.refresh_metadata,
+        max_tokens_per_chunk=args.chunk_tokens, parallel=args.parallel, effort=args.effort)
+
+
+def run_book(args, input_path: Path, root: Path) -> int:
+    def say(message: str) -> None:
+        print(f"[agent] {message}", flush=True)
+    return BookAgent(_options(args, input_path, root), say=say).run()
+
+
+def _settled(path: Path) -> bool:
+    files = [f for f in path.rglob("*") if f.is_file()] if path.is_dir() else [path]
+    newest = max((f.stat().st_mtime for f in files), default=path.stat().st_mtime)
+    return time.time() - newest >= WATCH_SETTLE_SECONDS
+
+
+def process_pending(args, root: Path, retry_at: dict, only_settled: bool) -> int:
+    """One pass over the inbox and the unfinished books. Returns the worst exit code."""
+    worst = 0
+    queue = library.list_inbox(root) + library.unfinished_books(root)
+    for entry in queue:
+        key = str(entry)
+        if retry_at.get(key, 0) > time.time():
+            continue
+        if only_settled and entry.is_relative_to(library.inbox_dir(root)) and not _settled(entry):
+            continue
+        code = run_book(args, entry, root)
+        if code == 0:
+            retry_at.pop(key, None)
+        else:
+            worst = code
+            retry_at[key] = time.time() + WATCH_RETRY_SECONDS
+    return worst
+
+
+def _check_tools(parser, provider: str) -> None:
+    if provider == PROVIDER_AUTO:
+        return  # the engines are detected, and reported, when the run starts
+    needs_agy = provider in (PROVIDER_AGY_CLAUDE, "agy")
+    if needs_agy and not find_agy_executable():
+        parser.error("the 'agy' CLI was not found: install it or set AGY_PATH")
+    if not find_claude_executable():
+        if provider == PROVIDER_CLAUDE:
+            parser.error("the 'claude' CLI was not found: install it or set CLAUDE_CLI_PATH")
+        print("[agent] warning: the 'claude' CLI was not found; fiction glossaries and the "
+              "claude backup are unavailable", file=sys.stderr)
+
+
+def _inspect(parser, args, root, order) -> int:
+    from src.core.agent.inspect_book import inspect_book
+    from src.core.llm import ProviderConfig, create_llm_provider
+    path = Path(args.inspect)
+    if not path.exists():
+        parser.error(f"not found: {path}")
+    provider = None
+    active = [e for e in engines_mod.detect_engines(order, cache_path=root / ".engines.json",
+                                                    refresh=args.refresh_engines) if e.active]
+    if active:
+        provider = create_llm_provider(ProviderConfig(provider="chain", model="", options={
+            "chain": engines_mod.chain_for(active, "haiku")}))
+    print(json.dumps(inspect_book(path, provider, target_language=args.target_lang), ensure_ascii=False))
+    return 0
+
+
+def _set_metadata(parser, args, root) -> int:
+    from src.core.agent.epub_metadata import edit_field
+    folder = Path(args.set_metadata)
+    folder = folder if folder.is_absolute() else root / folder
+    book = library.read_book(folder)
+    if not book or not args.field:
+        parser.error("--set-metadata needs a book folder with a book.json, and --field")
+    volumes = book.get("volumes", [])
+    for vol in volumes:
+        output = Path(vol.get("output", ""))
+        if output.suffix.lower() == ".epub" and output.exists():
+            edit_field(output, args.field, args.value, volume=int(vol.get("index", 0)),
+                       volume_count=len(volumes))
+    print(f"[agent] {args.field} updated in {len(volumes)} volume(s)", flush=True)
+    return 0
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.model:
+        try:
+            check_allowed(args.model)
+        except ValueError as exc:
+            parser.error(str(exc))
+    root = library.books_root(args.books_dir)
+    order = [e.strip() for e in args.engines.split(",") if e.strip()] or None
+
+    if args.detect:
+        found = engines_mod.detect_engines(order, cache_path=root / ".engines.json",
+                                           refresh=args.refresh_engines)
+        print(json.dumps([asdict(e) for e in found], ensure_ascii=False))
+        return 0
+    if args.inspect:
+        return _inspect(parser, args, root, order)
+    if args.set_metadata:
+        return _set_metadata(parser, args, root)
+
+    _check_tools(parser, args.translate_provider)
+    (library.inbox_dir(root)).mkdir(parents=True, exist_ok=True)
+
+    if args.input:
+        input_path = Path(args.input)
+        if not input_path.exists():
+            parser.error(f"input not found: {input_path}")
+        return run_book(args, input_path, root)
+
+    retry_at: dict = {}
+    if args.watch:
+        print(f"[agent] watching {library.inbox_dir(root)} (Ctrl+C to stop)", flush=True)
+        try:
+            while True:
+                process_pending(args, root, retry_at, only_settled=True)
+                time.sleep(WATCH_POLL_SECONDS)
+        except KeyboardInterrupt:
+            return 0
+    if not (library.list_inbox(root) or library.unfinished_books(root)):
+        print(f"[agent] nothing to do: put books in {library.inbox_dir(root)}", flush=True)
+        return 0
+    return process_pending(args, root, retry_at, only_settled=False)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

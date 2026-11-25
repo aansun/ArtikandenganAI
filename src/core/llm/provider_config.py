@@ -26,6 +26,7 @@ from .policy import RetryPolicy
 #: Every provider type ``create_llm_provider`` can build.
 SUPPORTED_PROVIDERS = (
     "ollama", "openai", "gemini", "openrouter", "mistral", "deepseek", "poe", "nim", "litellm",
+    "claude-cli", "agy", "agy-claude", "codex", "chain",
 )
 
 @dataclass(frozen=True)

@@ -5,9 +5,14 @@ This file is automatically loaded by pytest and provides common fixtures
 and configuration for all test modules.
 """
 
+import os
 import sys
 from pathlib import Path
 import importlib.util
+
+# Tests must not depend on a developer's local .env (src.config loads it without
+# overriding variables that are already set): pin the settings the baselines assume.
+os.environ["ATTRIBUTION_ENABLED"] = "true"
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent

@@ -1,0 +1,20 @@
+# Book translator agent worker.
+#   docker compose -f docker-compose.agent.yml up -d --build
+# Drop books into the volume's inbox/ folder; results appear under <book>/translation/
+# (see INDEX.md). Translates with Claude only: agy is not available in the container.
+# Put ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) in a .env file next to this one.
+services:
+  book-agent:
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.agent
+    restart: unless-stopped
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    command: ["python", "/app/translate_book.py", "--watch", "--translate-provider", "claude-cli"]
+    volumes:
+      - agent-data:/data
+
+volumes:
+  agent-data:

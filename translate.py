@@ -32,14 +32,20 @@ from src.core.llm.credentials import KEY_PROVIDERS
 class CliJobSinks(JobSinks):
     """Runner sinks for the console: the unified CLI logger and its progress bar."""
 
-    def __init__(self, logger):
+    def __init__(self, logger, on_stats=None):
         self.logger = logger
+        self._on_stats = on_stats
         self._log = logger.create_legacy_callback()
 
     def log(self, key, message="", data=None):
         self._log(key, message, data)
 
     def emit_stats(self, stats):
+        if self._on_stats:
+            try:
+                self._on_stats(stats)
+            except Exception:  # a progress listener must never stop a translation
+                pass
         total = stats.get('total_chunks', 0) or 0
         if total > 0:
             self.logger.update_progress(stats.get('completed_chunks', 0), total)
@@ -153,12 +159,12 @@ def _cli_glossary_store():
 
 
 def run_cli_job(job: JobConfig, logger, *, translation_id=None, checkpoint_manager=None,
-                is_resume=False, engines=None) -> JobResult:
+                is_resume=False, engines=None, on_stats=None) -> JobResult:
     """Run a job from the command line and return its result."""
     checkpoint_manager = checkpoint_manager or CheckpointManager()
     translation_id = translation_id or f"cli_{uuid.uuid4().hex[:8]}"
     runner = JobRunner(job, translation_id=translation_id, checkpoint_manager=checkpoint_manager,
-                       sinks=CliJobSinks(logger), is_resume=is_resume, glossary_store=_cli_glossary_store,
+                       sinks=CliJobSinks(logger, on_stats), is_resume=is_resume, glossary_store=_cli_glossary_store,
                        temp_dir=job.output_dir or None, engines=engines)
     result = asyncio.run(runner.run())
     nothing_translated = bool(result.verdict and result.verdict.nothing_translated)
@@ -182,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-tl", "--target_lang", default=DEFAULT_TARGET_LANGUAGE, help=f"Target language (default: {DEFAULT_TARGET_LANGUAGE}).")
     parser.add_argument("-m", "--model", default=DEFAULT_MODEL, help=f"LLM model (default: {DEFAULT_MODEL}).")
     parser.add_argument("--api_endpoint", default=None, help=f"API endpoint for Ollama or OpenAI-compatible servers (llama.cpp, LM Studio, vLLM, etc.). Overrides --openai_api_endpoint / --nim_api_endpoint when given (default: {API_ENDPOINT} for Ollama).")
-    parser.add_argument("--provider", default=LLM_PROVIDER, choices=["ollama", "gemini", "openai", "openrouter", "mistral", "deepseek", "poe", "nim", "litellm"], help=f"LLM provider (default: {LLM_PROVIDER}). Use 'openai' for any OpenAI-compatible server. Use 'litellm' to reach 100+ providers via a provider-prefixed model name (e.g. anthropic/claude-sonnet-4-6); keys are read from each provider's native env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...).")
+    parser.add_argument("--provider", default=LLM_PROVIDER, choices=["ollama", "gemini", "openai", "openrouter", "mistral", "deepseek", "poe", "nim", "litellm", "claude-cli", "agy", "agy-claude", "codex", "chain"], help=f"LLM provider (default: {LLM_PROVIDER}). Use 'claude-cli' to run every request through the local `claude` CLI (its own login or ANTHROPIC_API_KEY). Use 'agy' for the Antigravity CLI (Gemini, Claude 4.6, GPT-OSS; see `agy models`); 'agy-claude' is agy with the claude CLI as backup. Use 'openai' for any OpenAI-compatible server. Use 'litellm' to reach 100+ providers via a provider-prefixed model name (e.g. anthropic/claude-sonnet-4-6); keys are read from each provider's native env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...).")
     parser.add_argument("--gemini_api_key", default=GEMINI_API_KEY, help="Google Gemini API key (required if using gemini provider).")
     parser.add_argument("--openai_api_key", default=OPENAI_API_KEY, help="OpenAI API key (required for OpenAI cloud, not needed for local servers).")
     parser.add_argument("--openrouter_api_key", default=OPENROUTER_API_KEY, help="OpenRouter API key (required if using openrouter provider).")

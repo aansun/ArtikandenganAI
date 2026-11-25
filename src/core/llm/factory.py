@@ -25,7 +25,12 @@ from .provider_config import (
     ProviderConfig,
     _env_key,
 )
+from .providers.agy import AgyProvider
+from .providers.chain import ChainProvider
+from .providers.claude_cli import ClaudeCLIProvider
+from .providers.codex_cli import CodexProvider
 from .providers.deepseek import DeepSeekProvider
+from .providers.fallback import FallbackProvider
 from .providers.gemini import GeminiProvider
 from .providers.litellm import LiteLLMProvider
 from .providers.mistral import MistralProvider
@@ -215,6 +220,50 @@ def create_llm_provider(
             api_endpoint=_config.POE_API_ENDPOINT,
             disable_thinking=opts.get("disable_thinking", _config.POE_DISABLE_THINKING),
             disable_web_search=opts.get("disable_web_search", _config.POE_DISABLE_WEB_SEARCH),
+            log_callback=cfg.log_callback,
+            **common,
+        )
+    if cfg.provider == "codex":
+        # Authentication is the CLI's own; an empty model means the CLI's configured one.
+        return CodexProvider(model=cfg.model or "", log_callback=cfg.log_callback, **common)
+    if cfg.provider == "chain":
+        # The engines to try in order: opts["chain"] = [{"provider": ..., "model": ...}, ...].
+        links = []
+        for spec in opts.get("chain") or []:
+            engine = create_llm_provider(ProviderConfig(
+                provider=spec["provider"], model=spec.get("model", ""),
+                options={"effort": opts["effort"]} if opts.get("effort") else {},
+                log_callback=cfg.log_callback, retry=cfg.retry, temperature=cfg.temperature))
+            links.append((engine, spec.get("model", "")))
+        if not links:
+            raise LLMClientConfigError("the 'chain' provider needs at least one engine")
+        return ChainProvider(links, log_callback=cfg.log_callback, **common)
+    if cfg.provider == "agy-claude":
+        # agy first, the claude CLI as backup (see providers/fallback.py).
+        primary = AgyProvider(
+            model=cfg.model or _config.AGY_MODEL, executable=_config.AGY_PATH or None,
+            effort=opts.get("effort") or None, log_callback=cfg.log_callback, **common)
+        backup_model = opts.get("backup_model") or _config.CLAUDE_CLI_MODEL
+        backup = ClaudeCLIProvider(
+            model=backup_model, executable=_config.CLAUDE_CLI_PATH or None,
+            effort=_config.CLAUDE_CLI_EFFORT or None, log_callback=cfg.log_callback, **common)
+        return FallbackProvider(primary, backup, backup_model, log_callback=cfg.log_callback,
+                                **common)
+    if cfg.provider == "agy":
+        # Authentication is the CLI's own; no key is read or stored here.
+        return AgyProvider(
+            model=cfg.model or _config.AGY_MODEL,
+            executable=_config.AGY_PATH or None,
+            effort=opts.get("effort") or None,
+            log_callback=cfg.log_callback,
+            **common,
+        )
+    if cfg.provider == "claude-cli":
+        # Authentication is the CLI's own; no key is read or stored here.
+        return ClaudeCLIProvider(
+            model=cfg.model or _config.CLAUDE_CLI_MODEL,
+            executable=_config.CLAUDE_CLI_PATH or None,
+            effort=opts.get("effort") or _config.CLAUDE_CLI_EFFORT or None,
             log_callback=cfg.log_callback,
             **common,
         )

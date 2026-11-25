@@ -1,0 +1,70 @@
+name: BookTranslator
+options:
+  bundleIdPrefix: com.aansun
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "2"
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    ENABLE_DEBUG_DYLIB: NO
+targets:
+  BookTranslator:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: NNAI Translator
+        CFBundleName: NNAI Translator
+        NSHumanReadableCopyright: "GNU AGPL-3.0. Source: https://github.com/aansun/ArtikandenganAI"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.productivity
+        # Where the Python engine lives; the app asks for it once if this is wrong.
+        BTBackendRoot: "$(SRCROOT)/../.."
+        # Latest-release JSON of the project's repository (GitHub releases API).
+        BTUpdateFeed: "https://api.github.com/repos/aansun/ArtikandenganAI/releases/latest"
+    postBuildScripts:
+      - name: Bundle the translation engine
+        basedOnDependencyAnalysis: false
+        script: |
+          # The engine's source (not its Python libraries) travels inside the app; see EngineSetup.
+          ENGINE="${SRCROOT}/../.."
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/engine"
+          rm -rf "$DEST" && mkdir -p "$DEST"
+          rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store' "$ENGINE/src" "$DEST/"
+          cp "$ENGINE/translate_book.py" "$ENGINE/requirements.txt" "$DEST/"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aansun.BookTranslator
+        PRODUCT_NAME: NNAI Translator
+        PRODUCT_MODULE_NAME: BookTranslator
+        ENABLE_APP_SANDBOX: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: NO
+  BookTranslatorTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: BookTranslator
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NNAI Translator.app/Contents/MacOS/NNAI Translator"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  BookTranslator:
+    build:
+      targets:
+        BookTranslator: all
+        BookTranslatorTests: [test]
+    test:
+      targets: [BookTranslatorTests]
