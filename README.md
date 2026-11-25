@@ -20,6 +20,29 @@ order, and they are translated one after another while you do something else.
 - **Your Mac.** Light and dark theme, English or Indonesian menus, 18 target languages
   (Indonesian is the best tuned; the others have had less testing).
 
+## How it differs from the main project
+
+[TBL](https://github.com/hydropix/TranslateBooksWithLLMs) is a general translator: a web and desktop app
+for many formats (EPUB, SRT, DOCX, PDF, TXT, PGN), with local models through Ollama or cloud providers
+through an API key. NNAI Translator narrows that down to translating whole **books** on a Mac, and adds:
+
+- **The AI tools you already use.** Claude, Codex and Antigravity through their command-line tools, with no
+  API keys to manage. If one runs out of quota, the next one carries on.
+- **A queue for many books**, in the order you choose, with pause and resume.
+- **Names that stay the same.** Fiction gets a glossary of characters, places and terms before translating,
+  and you review it in one screen before the long run starts.
+- **A style that fits the book.** A writing style is recommended from the text itself, then a polish pass
+  smooths the result.
+- **Series.** A multi-volume file is split and translated volume by volume.
+- **Cleaning and checking.** Licence headers, donation appeals and download-site credits are removed
+  instead of translated, inconsistent names are repaired, and every page is checked against its source.
+- **Metadata and a library.** Check and edit each book's metadata, find it online by ISBN, and browse the
+  finished books with their covers.
+- **A native Mac app.** Light and dark theme, menu-bar progress, and the engine built in.
+
+What it gives up: it takes EPUB and TXT only (no subtitles, DOCX or PDF), it has no local models through
+Ollama, and it runs on macOS only. Use the main project for those; use NNAI Translator for books.
+
 ## Install
 
 1. Download `NNAI-Translator-<version>.dmg` from the [Releases](../../releases) page, open it and drag
