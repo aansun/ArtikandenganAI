@@ -33,7 +33,7 @@ final class LineCollector: @unchecked Sendable {
 @MainActor @Observable
 final class AppModel {
     var env: BackendEnvironment
-    var books: [QueueBook] = [] { didSet { saveQueue() } }
+    var books: [QueueBook] = [] { didSet { saveQueue(); updateBadge() } }
     var engines: [EngineInfo] = []
     var enginesLoading = false
     var paused = false
@@ -47,12 +47,34 @@ final class AppModel {
     var quality: String = UserDefaults.standard.string(forKey: "quality") ?? "balanced" {
         didSet { UserDefaults.standard.set(quality, forKey: "quality") }
     }
-    var notificationsOn: Bool = UserDefaults.standard.object(forKey: "notifications") as? Bool ?? true {
+    var notifyVolume: Bool = UserDefaults.standard.object(forKey: "notifyVolume") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(notifyVolume, forKey: "notifyVolume"); if notifyVolume { requestNotificationAccess() } }
+    }
+    var notifyAttention: Bool = UserDefaults.standard.object(forKey: "notifyAttention") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(notifyAttention, forKey: "notifyAttention"); if notifyAttention { requestNotificationAccess() } }
+    }
+    var keepAwake: Bool = UserDefaults.standard.object(forKey: "keepAwake") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(keepAwake, forKey: "keepAwake") }
+    }
+    var addToBooks: Bool = UserDefaults.standard.object(forKey: "addToBooks") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(addToBooks, forKey: "addToBooks") }
+    }
+    /// Library folders whose metadata the user marked as checked.
+    var verified: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "verifiedBooks") ?? []) {
+        didSet { UserDefaults.standard.set(Array(verified), forKey: "verifiedBooks") }
+    }
+    var engineOrder: [String] = UserDefaults.standard.stringArray(forKey: "engineOrder") ?? [] {
         didSet {
-            UserDefaults.standard.set(notificationsOn, forKey: "notifications")
-            if notificationsOn { requestNotificationAccess() }
+            UserDefaults.standard.set(engineOrder, forKey: "engineOrder")
+            env.engineOrder = engineOrder
         }
     }
+    var metadataBusy = false
+    /// Test hook: books to show before the first scan finishes.
+    var mockLibrary: [LibraryBook] = []
+    private var activity: NSObjectProtocol?
+    private var lastVolumeSeen: [String: Int] = [:]
+    private var addedToBooks: Set<String> = []
 
     private var runner: Task<Void, Never>?
     private var current: Process?
@@ -61,6 +83,7 @@ final class AppModel {
 
     init(env: BackendEnvironment = .load()) {
         self.env = env
+        self.env.engineOrder = UserDefaults.standard.stringArray(forKey: "engineOrder") ?? []
         loadQueue()
         library.reload(env: env)
         refreshEngines()
@@ -69,11 +92,14 @@ final class AppModel {
     // MARK: - Derived
 
     var uploaded: [QueueBook] { books.filter { $0.stage == .uploaded || $0.stage == .reading } }
-    var readyList: [QueueBook] { books.filter { $0.isQueued } }
+    /// The right card of Add: chosen, not started.
+    var readyList: [QueueBook] { books.filter { $0.stage == .ready } }
+    /// The Progress queue: started books other than the one that runs now are waiting.
+    var queueList: [QueueBook] { books.filter { $0.isQueued } }
     var running: QueueBook? { books.first { $0.id == runningID } }
     var isBusy: Bool { runningID != nil }
     var hasActiveEngine: Bool { engines.contains { $0.active } }
-    var waitingCount: Int { books.filter { [.ready, .approved].contains($0.stage) }.count }
+    var waitingCount: Int { books.filter { [.queued, .approved].contains($0.stage) }.count }
     var queueIsClean: Bool { runner == nil && runningID == nil }
     var reviewBooks: [QueueBook] { books.filter { $0.stage == .needsReview } }
 
@@ -93,12 +119,12 @@ final class AppModel {
 
     // MARK: - Engines
 
-    func refreshEngines(force: Bool = false) {
+    func refreshEngines(force: Bool = false, reorder: Bool = false) {
         guard !enginesLoading, env.isValid else { return }
         enginesLoading = true
         let env = self.env
         Task {
-            let found = try? await BackendClient.detect(env, refresh: force)
+            let found = try? await BackendClient.detect(env, refresh: force || reorder)
             self.engines = found ?? []
             self.enginesLoading = false
         }
@@ -172,35 +198,70 @@ final class AppModel {
     // MARK: - Queue order
 
     func makeReady(_ id: QueueBook.ID) {
-        update(id) { if $0.stage == .uploaded { $0.stage = .ready } }
-        // A book moved into the queue goes to the end of it.
-        if let index = books.firstIndex(where: { $0.id == id }) {
-            let item = books.remove(at: index)
-            books.append(item)
-        }
+        guard let index = books.firstIndex(where: { $0.id == id }), books[index].stage == .uploaded else { return }
+        var item = books.remove(at: index)
+        item.stage = .ready
+        books.append(item)   // a book moved into the card goes to the end of it
     }
 
     func makeAllReady() { uploaded.filter { $0.stage == .uploaded }.forEach { makeReady($0.id) } }
 
+    /// Back to the uploaded list (from the ready card or the queue), unless it runs now.
     func unready(_ id: QueueBook.ID) {
-        guard let book = book(id), book.stage == .ready || book.stage == .failed else { return }
+        guard let book = book(id), [.ready, .queued, .failed, .needsReview].contains(book.stage) else { return }
         update(id) { $0.stage = .uploaded; $0.error = "" }
     }
 
-    func moveReady(from: IndexSet, to: Int) {
-        var queue = readyList
-        queue.move(fromOffsets: from, toOffset: to)
-        books = books.filter { !$0.isQueued } + queue
+    /// Reorder inside one of the two ordered lists (ready card or queue), keeping everything else in place.
+    private func reorder(_ subset: (QueueBook) -> Bool, _ change: (inout [QueueBook]) -> Void) {
+        var picked = books.filter(subset)
+        change(&picked)
+        var iterator = picked.makeIterator()
+        books = books.map { subset($0) ? (iterator.next() ?? $0) : $0 }
     }
 
-    func moveFirst(_ id: QueueBook.ID) {
-        var queue = readyList
-        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
-        // The running book keeps the top place.
-        let floor = queue.firstIndex { $0.id == runningID }.map { $0 + 1 } ?? 0
-        let item = queue.remove(at: index)
-        queue.insert(item, at: min(floor, queue.count))
-        books = books.filter { !$0.isQueued } + queue
+    func placeBefore(_ id: QueueBook.ID, before target: QueueBook.ID) {
+        guard id != target else { return }
+        guard let moving = book(id), let dest = book(target), moving.stage == dest.stage else { return }
+        let stage = moving.stage
+        reorder({ $0.stage == stage }) { list in
+            guard let from = list.firstIndex(where: { $0.id == id }) else { return }
+            let item = list.remove(at: from)
+            let at = list.firstIndex { $0.id == target } ?? list.count
+            list.insert(item, at: at)
+        }
+    }
+
+    func move(_ id: QueueBook.ID, by offset: Int) {
+        guard let stage = book(id)?.stage else { return }
+        let inQueue = stage != .ready
+        let running = runningID
+        reorder({ inQueue ? ($0.isQueued && $0.id != running) : $0.stage == .ready }) { list in
+            guard let from = list.firstIndex(where: { $0.id == id }) else { return }
+            let to = from + offset
+            guard to >= 0, to < list.count else { return }
+            list.swapAt(from, to)
+        }
+    }
+
+    func canMove(_ id: QueueBook.ID, by offset: Int) -> Bool {
+        guard let stage = book(id)?.stage else { return false }
+        let list = stage == .ready ? readyList : queueList.filter { $0.id != runningID }
+        guard let index = list.firstIndex(where: { $0.id == id }) else { return false }
+        return list.indices.contains(index + offset)
+    }
+
+    /// Start button of Add: the ready books join the Progress queue, in order, and the queue runs.
+    func startReady() {
+        let ids = readyList.map(\.id)
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            guard let index = books.firstIndex(where: { $0.id == id }) else { continue }
+            var item = books.remove(at: index)
+            item.stage = .queued
+            books.append(item)
+        }
+        start()
     }
 
     func setReviewFirst(_ id: QueueBook.ID, _ value: Bool) { update(id) { $0.reviewFirst = value } }
@@ -223,7 +284,7 @@ final class AppModel {
     func resume() { start() }
 
     func retry(_ id: QueueBook.ID) {
-        update(id) { $0.error = ""; $0.stage = $0.workdir == nil ? .ready : .approved }
+        update(id) { $0.error = ""; $0.stage = $0.workdir == nil ? .queued : .approved }
         start()
     }
 
@@ -234,15 +295,20 @@ final class AppModel {
     }
 
     private func nextBook() -> QueueBook? {
-        books.first { $0.stage == .ready || $0.stage == .approved }
+        books.first { $0.stage == .queued || $0.stage == .approved }
     }
 
     private func runLoop() async {
         if engines.isEmpty { engines = (try? await BackendClient.detect(env)) ?? [] }
         guard hasActiveEngine else { lastError = Loc.shared.t("process.noEngine"); return }
+        if keepAwake { activity = ProcessInfo.processInfo.beginActivity(options: [.idleSystemSleepDisabled, .userInitiated], reason: "Translating books") }
+        defer {
+            if let activity { ProcessInfo.processInfo.endActivity(activity) }
+            activity = nil
+        }
         while !paused, let next = nextBook() {
             runningID = next.id
-            if next.stage == .ready && next.kind == .fiction && next.reviewFirst && next.workdir == nil {
+            if next.stage == .queued && next.kind == .fiction && next.reviewFirst && next.workdir == nil {
                 await prepare(next)
             } else {
                 await translate(next)
@@ -271,7 +337,7 @@ final class AppModel {
         let before = bookFolders()
         let (code, tail) = await runEngine(["-i", inputPath(book), "--prepare-only"] + baseArguments(book), for: book.id)
         if paused && killedForPause {
-            update(book.id) { $0.stage = .ready }
+            update(book.id) { $0.stage = .queued }
             return
         }
         guard code == 0, let workdir = findWorkdir(for: book, before: before) else {
@@ -291,7 +357,7 @@ final class AppModel {
         let before = bookFolders()
         let (code, tail) = await runEngine(args, for: book.id)
         if killedForPause && paused {
-            update(book.id) { $0.stage = $0.workdir == nil ? .ready : .approved }
+            update(book.id) { $0.stage = $0.workdir == nil ? .queued : .approved }
             return
         }
         let folder = book.workdir ?? findWorkdir(for: book, before: before)
@@ -299,7 +365,8 @@ final class AppModel {
            result.isComplete {
             books.removeAll { $0.id == book.id }
             library.reload(env: env)
-            notify(Loc.shared.t("notify.done", result.title), Loc.shared.t("notify.doneBody"))
+            notify(Loc.shared.t("notify.done", result.title), Loc.shared.t("notify.doneBody"), attention: false)
+            addCompletedVolumesToBooks(folder: folder)
         } else {
             update(book.id) { $0.workdir = $0.workdir ?? folder }
             fail(book.id, tail)
@@ -350,6 +417,14 @@ final class AppModel {
         self.status = status
         update(id) {
             if $0.stage == .translating { $0.volume = status.volume; $0.pct = status.pct; $0.volumes = max(status.volumes, $0.volumes) }
+        }
+        if let running = book(id), let folder = running.workdir ?? Optional(status.book), status.volume > 0 {
+            let seen = lastVolumeSeen[folder] ?? status.volume
+            if status.volume > seen {
+                notify(Loc.shared.t("notify.volume", seen, running.title), Loc.shared.t("notify.volumeBody"), attention: false)
+                addCompletedVolumesToBooks(folder: folder)
+            }
+            lastVolumeSeen[folder] = max(seen, status.volume)
         }
         if !status.engine.isEmpty, status.engine != lastEngineLabel {
             if !lastEngineLabel.isEmpty {
@@ -425,6 +500,11 @@ final class AppModel {
 
     var extraArguments: [QueueBook.ID: [String]] = [:]
 
+    private func updateBadge() {
+        let count = books.filter { $0.isQueued }.count
+        NSApp?.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+    }
+
     // MARK: - Persistence
 
     private func saveQueue() {
@@ -441,12 +521,94 @@ final class AppModel {
         for index in saved.indices {
             switch saved[index].stage {
             case .reading: saved[index].stage = .uploaded
-            case .preparing: saved[index].stage = .ready
-            case .translating: saved[index].stage = saved[index].workdir == nil ? .ready : .approved
+            case .preparing: saved[index].stage = .queued
+            case .translating: saved[index].stage = saved[index].workdir == nil ? .queued : .approved
             default: break
             }
         }
         books = saved
+    }
+
+    // MARK: - Estimates and engines
+
+    /// When the running book should be done, from the engine's estimate and the progress so far.
+    var estimatedFinish: Date? {
+        remainingMinutes.map { Date().addingTimeInterval(Double($0) * 60) }
+    }
+
+    /// "Estimated to finish today around 12.51" for the running book ('' when unknown).
+    func etaDescription(_ loc: Loc) -> String {
+        guard let end = estimatedFinish else { return "" }
+        let time = end.formatted(date: .omitted, time: .shortened)
+        let cal = Calendar.current
+        if cal.isDateInToday(end) { return loc.t("process.eta.today", time) }
+        if cal.isDateInTomorrow(end) { return loc.t("process.eta.tomorrow", time) }
+        return loc.t("process.eta.date", end.formatted(date: .abbreviated, time: .shortened))
+    }
+
+    var mainEngine: EngineInfo? { engines.first { $0.role == "main" } }
+    var backupEngines: [EngineInfo] { engines.filter { $0.role == "backup" } }
+    /// The engine that answered last, when it is not the main one (the main one is out).
+    var switchedEngine: String? {
+        guard let said = status?.engine.nonEmpty, let main = mainEngine, said != main.label else { return nil }
+        return said
+    }
+
+    func moveEngine(_ name: String, before target: String) {
+        var order = engines.map(\.name)
+        guard name != target, let from = order.firstIndex(of: name) else { return }
+        order.remove(at: from)
+        order.insert(name, at: order.firstIndex(of: target) ?? order.count)
+        engineOrder = order
+        refreshEngines(force: false, reorder: true)
+    }
+
+    // MARK: - Library
+
+    func toggleVerified(_ folder: String) {
+        if verified.contains(folder) { verified.remove(folder) } else { verified.insert(folder) }
+    }
+
+    /// The metadata "Change" button: set one field of every volume through the engine.
+    func editMetadata(folder: String, field: String, value: String) async -> Bool {
+        metadataBusy = true
+        defer { metadataBusy = false }
+        let folderPath = env.booksDir.appendingPathComponent(folder).path
+        do {
+            _ = try await BackendClient.run(env, ["--set-metadata", folderPath, "--field", field, "--value", value])
+            verified.remove(folder)
+            library.reload(env: env, force: true)
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Open every finished volume of a book in the Books app once.
+    func addCompletedVolumesToBooks(folder: String) {
+        guard addToBooks, let book = LibraryStore.read(folder: env.booksDir.appendingPathComponent(folder)) else { return }
+        let books = URL(fileURLWithPath: "/System/Applications/Books.app")
+        for volume in book.volumes where volume.status == "completed" && !addedToBooks.contains(volume.output) {
+            addedToBooks.insert(volume.output)
+            NSWorkspace.shared.open([URL(fileURLWithPath: volume.output)], withApplicationAt: books,
+                                    configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
+    func saveGlossary(for book: QueueBook, decisions: [String: String]) {
+        guard let url = file("glossary.json", of: book),
+              let data = try? Data(contentsOf: url),
+              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var terms = object["terms"] as? [[String: Any]] else { return }
+        for index in terms.indices {
+            guard let source = terms[index]["source"] as? String, let decision = decisions[source] else { continue }
+            terms[index]["decision"] = decision
+        }
+        object["terms"] = terms
+        if let out = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .withoutEscapingSlashes]) {
+            try? out.write(to: url, options: .atomic)
+        }
     }
 
     // MARK: - Notifications
@@ -456,8 +618,8 @@ final class AppModel {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    private func notify(_ title: String, _ body: String) {
-        guard notificationsOn, Bundle.main.bundleIdentifier != nil else { return }
+    private func notify(_ title: String, _ body: String, attention: Bool = true) {
+        guard attention ? notifyAttention : notifyVolume, Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

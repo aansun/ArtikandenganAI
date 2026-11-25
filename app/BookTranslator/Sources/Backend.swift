@@ -4,6 +4,7 @@ import Foundation
 struct BackendEnvironment {
     var root: URL        // the repo folder that holds translate_book.py
     var booksDir: URL
+    var engineOrder: [String] = []
 
     var script: URL { root.appendingPathComponent("translate_book.py") }
     var inbox: URL { booksDir.appendingPathComponent("inbox") }
@@ -53,7 +54,8 @@ struct BackendEnvironment {
         let process = Process()
         process.executableURL = python
         process.currentDirectoryURL = root
-        process.arguments = [script.path, "--books-dir", booksDir.path] + arguments
+        let engines = engineOrder.isEmpty ? [] : ["--engines", engineOrder.joined(separator: ",")]
+        process.arguments = [script.path, "--books-dir", booksDir.path] + engines + arguments
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = Self.cachedPath
         env["PYTHONUNBUFFERED"] = "1"

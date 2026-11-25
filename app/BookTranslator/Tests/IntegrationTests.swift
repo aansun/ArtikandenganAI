@@ -19,7 +19,7 @@ final class IntegrationTests: XCTestCase {
         let books = FileManager.default.temporaryDirectory.appendingPathComponent("bt-int-\(UUID().uuidString)")
         let model = AppModel(env: BackendEnvironment(root: root, booksDir: books))
         XCTAssertTrue(model.env.isValid)
-        model.notificationsOn = false
+        model.notifyVolume = false; model.notifyAttention = false
 
         try await wait("engines", timeout: 120) { !model.enginesLoading && !model.engines.isEmpty }
         print("ENGINES", model.engines.map { "\($0.name):\($0.active):\($0.role)" })
@@ -32,7 +32,7 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual(book.kind, .fiction)
 
         model.makeReady(book.id)
-        model.start()
+        model.startReady()
         try await wait("prepare/review", timeout: 900) { model.book(book.id)?.stage == .needsReview || model.book(book.id)?.stage == .failed }
         XCTAssertEqual(model.book(book.id)?.stage, .needsReview, model.book(book.id)?.error ?? "")
         let reviewed = try XCTUnwrap(model.book(book.id))
@@ -53,5 +53,19 @@ final class IntegrationTests: XCTestCase {
         let meta = EpubReader.read(URL(fileURLWithPath: try XCTUnwrap(done.volumes.first?.output)))
         print("META", meta?.language ?? "-", meta?.title ?? "-", meta?.creators ?? [], meta?.hasCover ?? false)
         XCTAssertEqual(meta?.language, "id")
+    }
+}
+
+/// Live catalogue check; runs only with BT_LIVE=1 (it calls Open Library).
+final class LiveLookupTests: XCTestCase {
+    func testIdentifyByISBNAndByTitle() async throws {
+        guard ProcessInfo.processInfo.environment["BT_LIVE"] == "1" else { throw XCTSkip("BT_LIVE not set") }
+        let byISBN = await MetadataLookup.identify(isbn: "9781599866741", title: "A Study in Scarlet", author: "Arthur Conan Doyle", googleKey: nil)
+        print("BYISBN", byISBN.records.prefix(3).map { "\($0.title)|\($0.publisher)|\($0.date)|isbn:\($0.matchedByISBN)|\(String(format: "%.2f", $0.score))" }, "notes:", byISBN.notes)
+        XCTAssertEqual(byISBN.records.first?.publisher, "Filiquarian")
+        XCTAssertTrue(byISBN.records.first?.matchedByISBN ?? false)
+        let byTitle = await MetadataLookup.identify(isbn: nil, title: "A Study in Scarlet", author: "Arthur Conan Doyle", googleKey: nil)
+        print("BYTITLE", byTitle.records.prefix(3).map { "\($0.title)|\($0.publisher)|\($0.date)|\(String(format: "%.2f", $0.score))" })
+        XCTAssertFalse(byTitle.records.isEmpty)
     }
 }

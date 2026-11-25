@@ -12,6 +12,7 @@ struct EpubMetadata: Equatable {
     var date = ""
     var subjects: [String] = []
     var identifier = ""
+    var identifiers: [String] = []
     var source = ""
     var series = ""
     var seriesIndex = ""
@@ -19,6 +20,44 @@ struct EpubMetadata: Equatable {
     var opfPath = ""
 
     var hasCover: Bool { coverHref != nil }
+
+    /// The first identifier that is a valid ISBN-13 or ISBN-10 ("urn:isbn:978-…" forms included).
+    var isbn: String? { identifiers.lazy.compactMap { ISBN.normalised($0) }.first }
+
+    /// The description as plain text: some e-books store it as HTML.
+    var plainDescription: String {
+        var text = description.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "</p>", with: "\n\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        for (entity, char) in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&nbsp;", " ")] {
+            text = text.replacingOccurrences(of: entity, with: char)
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// "2007-11-07T00:00:00+00:00" -> "7 Nov 2007"; anything else as written.
+    var displayDate: String {
+        let iso = ISO8601DateFormatter()
+        if let d = iso.date(from: date) ?? DateFormatter.dayOnly.date(from: String(date.prefix(10))) {
+            return d.formatted(date: .abbreviated, time: .omitted)
+        }
+        return date
+    }
+
+    /// "1.0" -> "1".
+    var displaySeriesIndex: String {
+        guard let value = Double(seriesIndex) else { return seriesIndex }
+        return value == value.rounded() ? String(Int(value)) : seriesIndex
+    }
+}
+
+extension DateFormatter {
+    static let dayOnly: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 }
 
 enum EpubReader {
@@ -118,12 +157,46 @@ private final class OPFDelegate: NSObject, XMLParserDelegate {
         case "dc:publisher": if meta.publisher.isEmpty { meta.publisher = value }
         case "dc:date": if meta.date.isEmpty { meta.date = value }
         case "dc:subject": meta.subjects.append(value)
-        case "dc:identifier": if meta.identifier.isEmpty { meta.identifier = value }
+        case "dc:identifier":
+            if meta.identifier.isEmpty { meta.identifier = value }
+            meta.identifiers.append(value)
         case "dc:source": if meta.source.isEmpty { meta.source = value }
         case "meta":
             if collectionProperty, meta.series.isEmpty { meta.series = value }
             collectionProperty = false
         default: break
         }
+    }
+}
+
+
+enum ISBN {
+    /// Digits of a valid ISBN-13 or ISBN-10 found in ``text``, else nil.
+    static func normalised(_ text: String) -> String? {
+        let cleaned = text.replacingOccurrences(of: "urn:isbn:", with: "", options: .caseInsensitive)
+            .filter { $0.isNumber || $0 == "x" || $0 == "X" }.uppercased()
+        switch cleaned.count {
+        case 13: return valid13(cleaned) ? cleaned : nil
+        case 10: return valid10(cleaned) ? cleaned : nil
+        default: return nil
+        }
+    }
+
+    static func valid13(_ s: String) -> Bool {
+        let digits = s.compactMap(\.wholeNumberValue)
+        guard digits.count == 13 else { return false }
+        let sum = digits.enumerated().reduce(0) { $0 + $1.element * ($1.offset % 2 == 0 ? 1 : 3) }
+        return sum % 10 == 0
+    }
+
+    static func valid10(_ s: String) -> Bool {
+        guard s.count == 10 else { return false }
+        var sum = 0
+        for (i, ch) in s.enumerated() {
+            let value = ch == "X" ? 10 : (ch.wholeNumberValue ?? -1)
+            if value < 0 || (ch == "X" && i != 9) { return false }
+            sum += value * (10 - i)
+        }
+        return sum % 11 == 0
     }
 }

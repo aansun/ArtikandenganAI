@@ -23,6 +23,7 @@ final class Updater {
     }
 
     var state: State = .idle
+    var lastChecked: Date? = UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date
     var autoUpdate: Bool = UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoUpdate, forKey: "autoUpdate") }
     }
@@ -69,6 +70,8 @@ final class Updater {
     func check() async {
         guard let feed else { state = .failed("no feed"); return }
         state = .checking
+        lastChecked = Date()
+        UserDefaults.standard.set(lastChecked, forKey: "lastUpdateCheck")
         do {
             var request = URLRequest(url: feed, timeoutInterval: 15)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
