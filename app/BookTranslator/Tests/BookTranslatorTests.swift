@@ -110,6 +110,18 @@ final class QueueTests: XCTestCase {
         XCTAssertEqual(m.queueList.map(\.title), ["Q", "A", "B"])
     }
 
+    func testTargetLanguageIsFixedWhenABookJoinsTheQueue() {
+        let m = model()
+        m.targetLanguage = "Spanish"
+        m.books = [book("A", stage: .ready)]
+        m.startReady()
+        XCTAssertEqual(m.books[0].targetLanguage, "Spanish")
+        m.targetLanguage = "Japanese"                 // a later change does not touch queued books
+        XCTAssertEqual(m.books[0].targetLanguage, "Spanish")
+        m.targetLanguage = "Indonesian"
+        UserDefaults.standard.removeObject(forKey: "targetLanguage")
+    }
+
     func testUnreadyAndKindToggle() {
         let m = model()
         m.books = [book("A", stage: .queued)]
@@ -175,7 +187,7 @@ final class MetadataLookupTests: XCTestCase {
         XCTAssertEqual(found[0].authors, ["Arthur Conan Doyle"])
         XCTAssertEqual(found[0].date, "1887")
         XCTAssertEqual(found[0].isbn, "9782070631858")
-        XCTAssertEqual(found[0].coverURL?.absoluteString, "https://covers.openlibrary.org/b/id/13405534-L.jpg")
+        XCTAssertEqual(found[0].coverURL?.absoluteString, "https://covers.openlibrary.org/b/id/13405534-L.jpg?default=false")
     }
 
     func testGoogleParsingAndError() {
@@ -222,6 +234,14 @@ final class IdentifyTests: XCTestCase {
         XCTAssertEqual(m.isbn, "9781599866741")
     }
 
+    func testDuplicateEditionsKeepTheISBNCopy() {
+        var a = MetadataCandidate(source: .openLibrary, title: "A Study in Scarlet"); a.publisher = "Filiquarian"; a.date = "2007"
+        var b = a; b.matchedByISBN = true; b.isbn = "9781599866741"
+        let out = MetadataLookup.dedupe([a, b, MetadataCandidate(source: .openLibrary, title: "Other")])
+        XCTAssertEqual(out.count, 2)
+        XCTAssertTrue(out[0].matchedByISBN)
+    }
+
     func testDatesBecomeISO() {
         XCTAssertEqual(MetadataLookup.isoDate("November 7, 2007"), "2007-11-07")
         XCTAssertEqual(MetadataLookup.isoDate("2001-05"), "2001-05")
@@ -265,5 +285,27 @@ final class IdentifyTests: XCTestCase {
         XCTAssertEqual(merged.coverURL?.absoluteString, "https://example.com/g.jpg")
         XCTAssertEqual(Set(merged.sources), [.openLibrary, .googleBooks])
         XCTAssertNil(MetadataLookup.merge([ol]))   // one source: nothing to combine
+    }
+}
+
+
+final class CoverFetcherTests: XCTestCase {
+    func testIsbnCoversComeBeforeTheSlowByIdLink() {
+        var c = MetadataCandidate(source: .openLibrary, title: "x")
+        c.isbn = "9781599866741"; c.altISBNs = ["9780140437877"]
+        c.coverURL = URL(string: "https://covers.openlibrary.org/b/id/1-L.jpg?default=false")
+        let urls = CoverFetcher.sources(for: c).map(\.absoluteString)
+        XCTAssertTrue(urls[0].contains("/b/isbn/9781599866741"))
+        XCTAssertTrue(urls[1].contains("books.google.com") && urls[1].contains("9781599866741"))
+        XCTAssertTrue(urls.last!.contains("/b/id/1-L"))
+        XCTAssertEqual(urls.count, 5)
+        XCTAssertTrue(CoverFetcher.sources(for: MetadataCandidate(source: .googleBooks, title: "y")).isEmpty)
+    }
+
+    func testPlaceholdersAndNonImagesAreRejected() {
+        XCTAssertFalse(CoverFetcher.isRealImage(Data(repeating: 0xFF, count: 500)))                       // too small
+        XCTAssertFalse(CoverFetcher.isRealImage(Data("<html>".utf8) + Data(repeating: 0x20, count: 5_000))) // not an image
+        XCTAssertTrue(CoverFetcher.isRealImage(Data([0xFF, 0xD8]) + Data(repeating: 0, count: 5_000)))
+        XCTAssertTrue(CoverFetcher.isRealImage(Data([0x89, 0x50, 0x4E, 0x47]) + Data(repeating: 0, count: 5_000)))
     }
 }

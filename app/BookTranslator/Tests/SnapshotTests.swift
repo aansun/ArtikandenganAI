@@ -5,11 +5,12 @@ import SwiftUI
 /// Renders the screens to PNG files for a visual check. Runs only with BT_SNAPSHOT_DIR set.
 @MainActor
 final class SnapshotTests: XCTestCase {
-    private func render<V: View>(_ view: V, name: String, size: CGSize) throws {
+    private func render<V: View>(_ view: V, name: String, size: CGSize, dark: Bool = false) throws {
         guard let dir = ProcessInfo.processInfo.environment["BT_SNAPSHOT_DIR"] else { throw XCTSkip("no BT_SNAPSHOT_DIR") }
         let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor)))
         host.frame = NSRect(origin: .zero, size: size)
+        host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
@@ -58,7 +59,7 @@ final class SnapshotTests: XCTestCase {
     }
 
     private func env<V: View>(_ v: V, _ m: AppModel) -> some View {
-        v.environment(m).environment(Loc.shared).environment(Updater())
+        v.environment(m).environment(Loc.shared).environment(Updater()).environment(AppearanceStore.shared)
     }
 
     func testScreens() throws {
@@ -68,9 +69,31 @@ final class SnapshotTests: XCTestCase {
         m.library.frozen = true
         let size = CGSize(width: 1180, height: 696)
         try render(env(InputView(onStart: {}), m), name: "1-input", size: size)
+        try render(env(RootView(), m), name: "0-root-light", size: size)
+        try render(env(RootView(), m), name: "0-root-dark", size: size, dark: true)
+        try render(env(InputView(onStart: {}), m), name: "1-input-dark", size: size, dark: true)
+        try render(env(ProcessView {}, m), name: "2-process-dark", size: size, dark: true)
+        try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "3-library-dark", size: size, dark: true)
+        try render(env(SettingsView(), m), name: "4-settings-dark", size: CGSize(width: 700, height: 900), dark: true)
         try render(env(ProcessView {}, m), name: "2-process", size: size)
         try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "3-library-mock", size: size)
+        for width in [1180, 980, 940, 760] {
+            try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "9-library-w\(width)", size: CGSize(width: width, height: 330), dark: true)
+        }
+        // Narrowest window, Indonesian (the longer labels), every main screen.
+        Loc.shared.language = .id
+        let narrow = CGSize(width: 940, height: 640)
+        try render(env(InputView(onStart: {}), m), name: "A-input-narrow-id", size: narrow, dark: true)
+        try render(env(ProcessView {}, m), name: "A-process-narrow-id", size: narrow, dark: true)
+        try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "A-library-narrow-id", size: narrow, dark: true)
+        try render(env(BookDetailView(book: m.library.books[2], onBack: {}), m), name: "A-detail-narrow-id", size: narrow, dark: true)
+        Loc.shared.language = .en
+        UserDefaults.standard.set("covers", forKey: "libraryLayout")
+        try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "3-library-covers", size: size)
+        try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "3-library-covers-dark", size: size, dark: true)
+        UserDefaults.standard.removeObject(forKey: "libraryLayout")
         try render(env(BookDetailView(book: m.library.books[2], onBack: {}), m), name: "3-detail-mock", size: size)
+        try render(env(BookDetailView(book: m.library.books[2], onBack: {}), m), name: "3-detail-mock-dark", size: size, dark: true)
         // Review sheet with files on disk
         let work = m.env.booksDir.appendingPathComponent("moon")
         try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
@@ -82,16 +105,40 @@ final class SnapshotTests: XCTestCase {
         var moon = m.books[2]; moon.workdir = "moon"
         try render(env(ReviewSheet(book: moon), m), name: "5-review", size: CGSize(width: 1000, height: 680))
         try render(env(SettingsView(), m), name: "4-settings", size: CGSize(width: 700, height: 760))
+        if let real = ProcessInfo.processInfo.environment["BT_REAL_EPUB"] {
+            var book = m.library.books[0]
+            book.title = "A Study in Scarlet"; book.authorName = "Sir Arthur Conan Doyle"; book.folder = "real"
+            book.volumes = [VolumeInfo(index: 1, label: "x", output: real, status: "completed", title: nil, finishedAt: nil, metadataMissing: [], qaFlags: 0)]
+            m.library.books.append(book)
+            try render(env(BookDetailView(book: book, onBack: {}), m), name: "3-detail-real", size: size)
+            try render(env(BookDetailView(book: book, onBack: {}), m), name: "3-detail-real-dark", size: size, dark: true)
+        }
         var found = MetadataCandidate(source: .openLibrary, title: "A Study in Scarlet")
         found.matchedByISBN = true; found.sources = [.openLibrary]; found.authors = ["Arthur Conan Doyle"]; found.publisher = "Ward Lock"; found.date = "1887"
         found.subjects = ["Detective", "Mystery"]; found.isbn = "9782070631858"; found.coverURL = URL(string: "https://example.invalid/c.jpg")
         var other = found; other.id = UUID(); other.matchedByISBN = false; other.title = "A Study in Scarlet [adaptation]"; other.publisher = "Gilberton"; other.date = "1953"
         var cur = EpubMetadata(); cur.identifiers = ["9781599866741"]; cur.title = "A Study in Scarlet"; cur.creators = ["Sir Arthur Conan Doyle"]; cur.date = "2007-11-07T00:00:00+00:00"
-        try render(env(MetadataLookupSheet(book: m.library.books[0], current: cur, onDone: {}, preview: [found, other]), m), name: "7-lookup", size: CGSize(width: 900, height: 600))
+        try render(env(MetadataLookupSheet(book: m.library.books[0], current: cur, onDone: { _ in }, preview: [found, other]), m), name: "7-lookup", size: CGSize(width: 900, height: 600))
         try render(env(MenuBarContent(), m), name: "6-menubar", size: CGSize(width: 320, height: 260))
         Loc.shared.language = .id
         try render(env(InputView(onStart: {}), m), name: "1-input-id", size: size)
         Loc.shared.language = .en
+    }
+
+    /// The real window chrome: traffic lights and the header in one bar (a bare window with the same style).
+    func testWindowChrome() throws {
+        guard let dir = ProcessInfo.processInfo.environment["BT_SNAPSHOT_DIR"] else { throw XCTSkip("no BT_SNAPSHOT_DIR") }
+        let m = model()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 400),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.contentView = NSHostingView(rootView: env(RootView(), m))
+        window.orderBack(nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        guard let frameView = window.contentView?.superview,
+              let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) else { return }
+        frameView.cacheDisplay(in: frameView.bounds, to: rep)
+        try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("8-window.png"))
     }
 
     func testLibraryWithRealBook() throws {

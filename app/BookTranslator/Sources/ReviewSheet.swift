@@ -14,14 +14,14 @@ struct ReviewSheet: View {
         VStack(spacing: 0) {
             header
             HStack(spacing: 0) {
-                namesColumn.frame(width: 410)
-                Rectangle().fill(Color(hex: 0xE5E5EA)).frame(width: 1)
+                namesColumn.frame(width: 380)
+                Rectangle().fill(Theme.divider).frame(width: 1)
                 styleColumn.frame(maxWidth: .infinity)
             }
             footer
         }
-        .frame(width: 1000, height: 680)
-        .background(Color.white)
+        .frame(width: 900, height: 600)
+        .background(Theme.card)
         .onAppear {
             style = model.styleChoice(for: book)
             terms = model.glossaryTerms(for: book)
@@ -40,7 +40,7 @@ struct ReviewSheet: View {
             Spacer()
         }
         .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 12)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xE5E5EA)).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.divider).frame(height: 1) }
     }
 
     // MARK: - Names
@@ -75,7 +75,7 @@ struct ReviewSheet: View {
                             .padding(2).background(Theme.neutralBg, in: RoundedRectangle(cornerRadius: 7))
                         }
                         .padding(.vertical, 5)
-                        .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xF2F2F5)).frame(height: 1) }
+                        .overlay(alignment: .bottom) { Rectangle().fill(Theme.subtleDivider).frame(height: 1) }
                     }
                 }
             }
@@ -91,7 +91,7 @@ struct ReviewSheet: View {
         Button(action: action) {
             Text(label).font(.system(size: 12)).foregroundStyle(Theme.ink)
                 .padding(.horizontal, 10).padding(.vertical, 3)
-                .background(on ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .background(on ? Theme.selectedSeg : .clear, in: RoundedRectangle(cornerRadius: 5))
                 .shadow(color: .black.opacity(on ? 0.18 : 0), radius: 1, y: 1)
         }.buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.35)
     }
@@ -108,7 +108,7 @@ struct ReviewSheet: View {
                     Button { choice = option.id } label: {
                         HStack(alignment: .top, spacing: 10) {
                             ZStack {
-                                Circle().stroke(on ? Theme.accent : Color(hex: 0xB8B8C0), lineWidth: 2).frame(width: 16, height: 16)
+                                Circle().stroke(on ? Theme.accent : Theme.stageIdle, lineWidth: 2).frame(width: 16, height: 16)
                                 if on { Circle().fill(Theme.accent).frame(width: 7, height: 7) }
                             }.padding(.top, 2)
                             VStack(alignment: .leading, spacing: 2) {
@@ -121,17 +121,17 @@ struct ReviewSheet: View {
                             Spacer()
                         }
                         .padding(.horizontal, 12).padding(.vertical, 9)
-                        .background(on ? Color(hex: 0xF4F8FE) : .white, in: RoundedRectangle(cornerRadius: 11))
-                        .overlay(RoundedRectangle(cornerRadius: 11).stroke(on ? Theme.accent : Color(hex: 0xE1E1E6), lineWidth: 1.5))
+                        .background(on ? Theme.selectedFill : Theme.card, in: RoundedRectangle(cornerRadius: 11))
+                        .overlay(RoundedRectangle(cornerRadius: 11).stroke(on ? Theme.accent : Theme.unselectedBorder, lineWidth: 1.5))
                     }.buttonStyle(.plain)
                 }
                 Text(loc.t("review.sampleTitle")).font(.system(size: 13, weight: .semibold)).padding(.top, 2)
                 Text(loc.t("sample.source")).font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                     .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xE5E5EA)))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider))
                 Text(loc.t("sample.\(Loc.table["sample.\(choice)"] != nil ? choice : "formal")")).font(.system(size: 13)).lineSpacing(4)
                     .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(hex: 0xF4F8FE), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Theme.selectedFill, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.readyLine))
                 if let url = model.file("calibration.md", of: book), FileManager.default.fileExists(atPath: url.path) {
                     Button(loc.t("review.calibration")) { NSWorkspace.shared.open(url) }.buttonStyle(.link).font(.system(size: 12))
@@ -152,6 +152,6 @@ struct ReviewSheet: View {
             }.buttonStyle(PrimaryButtonStyle(radius: 8)).keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 24).padding(.vertical, 12)
-        .overlay(alignment: .top) { Rectangle().fill(Color(hex: 0xE5E5EA)).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
     }
 }

@@ -69,6 +69,9 @@ final class AppModel {
             env.engineOrder = engineOrder
         }
     }
+    var targetLanguage: String = UserDefaults.standard.string(forKey: "targetLanguage") ?? "Indonesian" {
+        didSet { UserDefaults.standard.set(targetLanguage, forKey: "targetLanguage") }
+    }
     var metadataBusy = false
     /// Test hook: books to show before the first scan finishes.
     var mockLibrary: [LibraryBook] = []
@@ -169,7 +172,7 @@ final class AppModel {
         let file = env.inbox.appendingPathComponent(book.fileName)
         Task {
             do {
-                let info = try await BackendClient.inspect(env, file: file)
+                let info = try await BackendClient.inspect(env, file: file, target: targetLanguage)
                 update(id) {
                     $0.title = info.title; $0.author = info.author; $0.volumes = max(info.volumes, 1)
                     $0.kind = info.kind; $0.estimatedMinutes = info.estimatedMinutes
@@ -259,6 +262,7 @@ final class AppModel {
             guard let index = books.firstIndex(where: { $0.id == id }) else { continue }
             var item = books.remove(at: index)
             item.stage = .queued
+            item.targetLanguage = item.targetLanguage ?? targetLanguage   // fixed from now on
             books.append(item)
         }
         start()
@@ -320,7 +324,8 @@ final class AppModel {
     }
 
     private func baseArguments(_ book: QueueBook) -> [String] {
-        var args = ["--profile", quality, book.kind == .fiction ? "--fiction" : "--non-fiction"]
+        var args = ["--profile", quality, book.kind == .fiction ? "--fiction" : "--non-fiction",
+                    "-tl", book.targetLanguage ?? "Indonesian"]
         if book.style != "auto" { args += ["--style", book.style] }
         return args
     }
@@ -492,6 +497,7 @@ final class AppModel {
         book.stage = .approved
         book.workdir = folder
         book.kind = library.book(folder: folder)?.kind ?? .fiction
+        book.targetLanguage = library.book(folder: folder)?.targetLanguage ?? "Indonesian"
         book.volumes = library.book(folder: folder)?.volumes.count ?? 1
         books.append(book)
         extraArguments[book.id] = arguments
@@ -570,18 +576,21 @@ final class AppModel {
     }
 
     /// The metadata "Change" button: set one field of every volume through the engine.
-    func editMetadata(folder: String, field: String, value: String) async -> Bool {
+    /// Returns nil when the field was written, else the engine's error text.
+    func editMetadata(folder: String, field: String, value: String) async -> String? {
         metadataBusy = true
         defer { metadataBusy = false }
         let folderPath = env.booksDir.appendingPathComponent(folder).path
         do {
             _ = try await BackendClient.run(env, ["--set-metadata", folderPath, "--field", field, "--value", value])
             verified.remove(folder)
+            if field == "cover" { library.dropCover(folder: folder) }
             library.reload(env: env, force: true)
-            return true
+            return nil
         } catch {
-            lastError = error.localizedDescription
-            return false
+            let text = error.localizedDescription.isEmpty ? "unknown error" : error.localizedDescription
+            lastError = text
+            return text
         }
     }
 

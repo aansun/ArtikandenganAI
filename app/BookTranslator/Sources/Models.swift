@@ -1,5 +1,11 @@
 import Foundation
 
+/// Languages offered as the translation target (English names, as the engine expects).
+enum TargetLanguages {
+    static let all = ["Indonesian", "English", "Malay", "Spanish", "French", "German", "Italian", "Portuguese (Brazil)", "Dutch",
+                      "Russian", "Arabic", "Hindi", "Japanese", "Korean", "Chinese", "Thai", "Vietnamese", "Turkish"]
+}
+
 enum BookKind: String, Codable {
     case fiction = "fiksi"
     case nonfiction = "nonfiksi"
@@ -54,6 +60,7 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var stage: Stage = .reading
     var reviewFirst = true
     var style = "auto"
+    var targetLanguage: String?   // fixed when the book joins the queue (nil = Indonesian)
     var workdir: String?          // folder name under books/ once the engine has taken the book
     var volume = 0
     var pct = 0

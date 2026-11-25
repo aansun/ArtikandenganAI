@@ -10,6 +10,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
     @Environment(Updater.self) private var updater
+    @Environment(AppearanceStore.self) private var appearance
     @Environment(\.openSettings) private var openSettings
     @State private var stage = Stage3.input
     @State private var openFolder: String?
@@ -22,14 +23,26 @@ struct RootView: View {
             case .library: LibraryScreen(openFolder: $openFolder)
             }
         }
-        .frame(minWidth: 980, minHeight: 640)
+        .frame(minWidth: 940, minHeight: 640)
         .background(Theme.window)
+        .background(WindowConfigurator())
+        // The system toolbar keeps the traffic lights centred; the stage bar and the theme switch live in it.
         .toolbar {
-            ToolbarItem(placement: .principal) { stageSwitcher }
+            ToolbarItem(placement: .principal) { stageSwitcher }.withoutGlass()
             ToolbarItem(placement: .primaryAction) {
-                Button { openSettings() } label: { Image(systemName: "gearshape") }.help(loc.t("nav.settings"))
-            }
+                HStack(spacing: 10) {
+                    IconSegmented(items: AppearanceMode.allCases.map { ($0, $0.symbol, loc.t("appearance.\($0.rawValue)")) },
+                                  selection: Binding(get: { appearance.mode }, set: { appearance.mode = $0 }))
+                    Button { openSettings() } label: {
+                        Image(systemName: "gearshape").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                            .frame(width: 28, height: 28).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).help(loc.t("nav.settings"))
+                }
+            }.withoutGlass()
         }
+        .toolbarBackground(Theme.bar, for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
         .navigationTitle(loc.t("app.title"))
         .sheet(item: Binding(get: { model.reviewTarget.flatMap { model.book($0) } },
                              set: { if $0 == nil { model.reviewTarget = nil } })) { ReviewSheet(book: $0) }
@@ -41,6 +54,7 @@ struct RootView: View {
             if !busy { Task { await updater.installIfAllowed(queueIdle: model.waitingCount == 0) } }
         }
         .task {
+            appearance.apply()
             if model.notifyVolume || model.notifyAttention { model.requestNotificationAccess() }
             if updater.autoUpdate { await updater.check(); await updater.installIfAllowed(queueIdle: !model.isBusy) }
         }
@@ -63,18 +77,19 @@ struct RootView: View {
                     if s != .library { openFolder = nil }
                 } label: {
                     HStack(spacing: 8) {
-                        Text("\(s.number)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                            .frame(width: 20, height: 20).background(on ? Theme.accent : Color(hex: 0xB8B8C0), in: Circle())
+                        Text("\(s.number)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 20, height: 20).background(on ? Theme.accent : Theme.stageIdle, in: Circle())
                         Text(loc.t("nav.\(s.rawValue)")).font(.system(size: 14, weight: on ? .semibold : .regular))
-                        Text("\(count(s))").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        Text("\(count(s))").font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit()
                     }
                     .foregroundStyle(Theme.ink)
                     .padding(.horizontal, 18).padding(.vertical, 6)
-                    .background(on ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 9))
-                    .shadow(color: .black.opacity(on ? 0.2 : 0), radius: 1.5, y: 1)
+                    .background(on ? Theme.selectedSeg : .clear, in: RoundedRectangle(cornerRadius: 9))
+                    .shadow(color: .black.opacity(on ? 0.18 : 0), radius: 1.5, y: 1)
+                    .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
         }
-        .padding(3).background(Color(hex: 0xDEDEE3), in: RoundedRectangle(cornerRadius: 11))
+        .padding(3).background(Theme.stageTrack, in: RoundedRectangle(cornerRadius: 11))
     }
 }

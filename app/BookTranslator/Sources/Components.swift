@@ -1,39 +1,68 @@
 import SwiftUI
 
-extension Color {
-    init(hex: UInt32) {
-        self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+extension NSColor {
+    convenience init(hex: UInt32) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
     }
 }
 
-/// The colours of the design canvas.
+extension Color {
+    init(hex: UInt32) { self.init(nsColor: NSColor(hex: hex)) }
+
+    /// A colour that follows the window's appearance (light or dark).
+    init(light: UInt32, dark: UInt32) {
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(hex: dark) : NSColor(hex: light)
+        })
+    }
+}
+
+/// The colours of the design canvas, each with a light and a dark value.
 enum Theme {
-    static let window = Color(hex: 0xF5F5F7)
-    static let bar = Color(hex: 0xEDEDF0)
-    static let barLine = Color(hex: 0xDCDCE1)
-    static let card = Color.white
-    static let line = Color(hex: 0xE3E3E8)
-    static let rowLine = Color(hex: 0xEFEFF3)
-    static let ink = Color(hex: 0x1D1D1F)
-    static let muted = Color(hex: 0x55555A)
-    static let faint = Color(hex: 0x6E6E73)
-    static let accent = Color(hex: 0x0066D6)
-    static let accentDark = Color(hex: 0x0A4FA8)
-    static let green = Color(hex: 0x1E7B34)
-    static let okBg = Color(hex: 0xE7F3EA)
-    static let okText = Color(hex: 0x1E5B2B)
-    static let warnBg = Color(hex: 0xFFF1D6)
-    static let warnText = Color(hex: 0x7A4D00)
-    static let warnIcon = Color(hex: 0x8A5A00)
-    static let amber = Color(hex: 0xB7791F)
-    static let readyBg = Color(hex: 0xF2F7FF)
-    static let readyLine = Color(hex: 0xCFE0F8)
-    static let dashed = Color(hex: 0xB8C4D8)
-    static let segTrack = Color(hex: 0xE4E4E9)
-    static let buttonLine = Color(hex: 0xC9C9D0)
-    static let fictionBg = Color(hex: 0xEAF1FD)
-    static let neutralBg = Color(hex: 0xEEF0F3)
-    static let neutralText = Color(hex: 0x3A3A3C)
+    static let window = Color(light: 0xF5F5F7, dark: 0x1C1C1E)
+    static let bar = Color(light: 0xEDEDF0, dark: 0x262628)
+    static let barLine = Color(light: 0xDCDCE1, dark: 0x3A3A3E)
+    static let card = Color(light: 0xFFFFFF, dark: 0x2A2A2D)
+    static let line = Color(light: 0xE3E3E8, dark: 0x3A3A3E)
+    static let rowLine = Color(light: 0xEFEFF3, dark: 0x343438)
+    static let ink = Color(light: 0x1D1D1F, dark: 0xF5F5F7)
+    static let muted = Color(light: 0x55555A, dark: 0xA1A1A6)
+    static let faint = Color(light: 0x6E6E73, dark: 0x8E8E93)
+    static let accent = Color(light: 0x0066D6, dark: 0x3D8BFF)
+    static let accentDark = Color(light: 0x0A4FA8, dark: 0x8DBBFF)
+    static let green = Color(light: 0x1E7B34, dark: 0x3DBE5A)
+    static let okBg = Color(light: 0xE7F3EA, dark: 0x1F3A28)
+    static let okText = Color(light: 0x1E5B2B, dark: 0x7FD497)
+    static let warnBg = Color(light: 0xFFF1D6, dark: 0x3D3217)
+    static let warnText = Color(light: 0x7A4D00, dark: 0xF2C46D)
+    static let warnIcon = Color(light: 0x8A5A00, dark: 0xE0B25A)
+    static let amber = Color(light: 0xB7791F, dark: 0xE0A030)
+    static let readyBg = Color(light: 0xF2F7FF, dark: 0x1B2638)
+    static let readyLine = Color(light: 0xCFE0F8, dark: 0x2E4466)
+    static let dashed = Color(light: 0xB8C4D8, dark: 0x4D5C78)
+    static let segTrack = Color(light: 0xE4E4E9, dark: 0x3A3A3E)
+    static let selectedSeg = Color(light: 0xFFFFFF, dark: 0x636366)
+    static let buttonLine = Color(light: 0xC9C9D0, dark: 0x5A5A5E)
+    static let fictionBg = Color(light: 0xEAF1FD, dark: 0x1F3452)
+    static let neutralBg = Color(light: 0xEEF0F3, dark: 0x3A3A3E)
+    static let neutralText = Color(light: 0x3A3A3C, dark: 0xD1D1D6)
+    static let divider = Color(light: 0xE5E5EA, dark: 0x3A3A3E)
+    static let subtleDivider = Color(light: 0xF2F2F5, dark: 0x343438)
+    static let fieldBorder = Color(light: 0xD2D2D7, dark: 0x55555A)
+    static let rowBorder = Color(light: 0xECECF0, dark: 0x3A3A3E)
+    static let readyRowBorder = Color(light: 0xD5E3F8, dark: 0x34507A)
+    static let dropFill = Color(light: 0xF9FBFE, dark: 0x1F2836)
+    static let selectedFill = Color(light: 0xF4F8FE, dark: 0x1F2F47)
+    static let unselectedBorder = Color(light: 0xE1E1E6, dark: 0x48484C)
+    static let grip = Color(light: 0xB0B0B8, dark: 0x6E6E73)
+    static let dotIdle = Color(light: 0xD8D8DE, dark: 0x48484C)
+    static let trackBar = Color(light: 0xE8E8ED, dark: 0x3A3A3E)
+    static let numCircle = Color(light: 0xE4E4E9, dark: 0x48484C)
+    static let stageTrack = Color(light: 0xDEDEE3, dark: 0x38383C)
+    static let stageIdle = Color(light: 0xB8B8C0, dark: 0x6E6E73)
+    static let sidePanel = Color(light: 0xFAFAFB, dark: 0x232326)
+    static let queueText = Color(light: 0x4A4A50, dark: 0xD1D1D6)
+    static let codexBadge = Color(light: 0x1D1D1F, dark: 0x5A5A5E)
 }
 
 struct Pill: View {
@@ -67,8 +96,9 @@ struct Segmented<T: Hashable>: View {
                 let on = value == selection
                 Button { selection = value } label: {
                     Text(label).font(.system(size: fontSize)).foregroundStyle(on ? Theme.ink : Theme.muted)
+                        .lineLimit(1).fixedSize()
                         .padding(.horizontal, hPad).padding(.vertical, vPad)
-                        .background(on ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        .background(on ? Theme.selectedSeg : .clear, in: RoundedRectangle(cornerRadius: 6))
                         .shadow(color: .black.opacity(on ? 0.2 : 0), radius: 1, y: 1)
                 }.buttonStyle(.plain)
             }
@@ -94,7 +124,7 @@ struct GhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 12.5)).foregroundStyle(tint)
             .padding(.horizontal, 12).padding(.vertical, 5)
-            .background(configuration.isPressed ? Color.black.opacity(0.06) : (bordered ? Color.white : .clear), in: RoundedRectangle(cornerRadius: 8))
+            .background(configuration.isPressed ? Color.black.opacity(0.06) : (bordered ? Theme.card : .clear), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(bordered ? Theme.buttonLine : .clear))
     }
 }
@@ -146,7 +176,7 @@ struct CoverView: View {
             } else {
                 Rectangle().fill(Covers.gradient(for: title))
                 if showTitle {
-                    Text(title).font(.custom("Georgia", size: 10.5)).foregroundStyle(.white).lineLimit(4)
+                    Text(title).font(.custom("Georgia", size: max(10.5, width * 0.095))).foregroundStyle(.white).lineLimit(5)
                         .padding(7).multilineTextAlignment(.leading)
                 }
             }
@@ -170,4 +200,50 @@ struct CardBox<Content: View>: View {
 
 extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+
+/// A cover looked up from several sources, cached, with a spinner while it loads and a clear fallback.
+struct RemoteImage: View {
+    var urls: [URL]
+    var title: String
+    var width: CGFloat
+    var height: CGFloat
+    var radius: CGFloat = 4
+    @State private var image: NSImage?
+    @State private var failed = false
+
+    private static let cache = NSCache<NSString, NSImage>()
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                Rectangle().fill(Covers.gradient(for: title).opacity(0.55))
+                if urls.isEmpty || failed {
+                    Image(systemName: "photo").font(.system(size: min(width, height) * 0.3)).foregroundStyle(.white.opacity(0.8))
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+        }
+        .frame(width: width, height: height).clipped()
+        .clipShape(RoundedRectangle(cornerRadius: radius))
+        .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+        .task(id: urls) { await load() }
+    }
+
+    private func load() async {
+        image = nil; failed = false
+        guard !urls.isEmpty else { return }
+        let key = urls.map(\.absoluteString).joined(separator: "|") as NSString
+        if let cached = Self.cache.object(forKey: key) { image = cached; return }
+        if let data = await CoverFetcher.fetch(urls), let loaded = NSImage(data: data) {
+            Self.cache.setObject(loaded, forKey: key)
+            image = loaded
+        } else {
+            failed = true
+        }
+    }
 }
