@@ -51,6 +51,26 @@ shell's PATH) so the engine finds the CLIs even though a Mac app does not inheri
 whether Book Translator may access it. Until that prompt is answered the engine cannot start, so the
 Settings screen shows no engines. Allow it, or keep the engine folder elsewhere.
 
+## Package and install
+
+```bash
+app/BookTranslator/Tools/package.sh            # universal Release build (arm64 + x86_64)
+ARCHS=arm64 app/BookTranslator/Tools/package.sh # faster, Apple silicon only
+```
+
+This writes `dist/BookTranslator-<version>.dmg` (open it and drag Book Translator to Applications) and
+`dist/BookTranslator-<version>.zip` (the file the in-app updater downloads). `dist/` is git-ignored.
+
+- **The engine is not inside the app.** The app runs the Python engine of this repository, found at the
+  folder baked in at build time (it is printed at the end of the script) or the one chosen in Settings.
+  Keep that folder, with its `.venv`, on the Mac; moving it means choosing it again in Settings.
+- **Signing.** The app is signed ad hoc, which is enough on the Mac that built it. If the DMG or zip is
+  copied to another Mac (download, AirDrop), macOS quarantines it: right-click the app and choose Open
+  once, or run `xattr -dr com.apple.quarantine "/Applications/Book Translator.app"`. A build that opens
+  without that step needs an Apple Developer ID and notarisation, which this project does not have.
+- **First launch.** macOS asks whether the app may access the folder that holds the engine (Documents,
+  Desktop, iCloud Drive); allow it, or the engines list stays empty.
+
 ## Updates
 
 Settings checks the latest GitHub release (`BTUpdateFeed`): the tag is the version and the `.zip`
