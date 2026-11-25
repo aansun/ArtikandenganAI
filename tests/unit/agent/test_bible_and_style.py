@@ -96,3 +96,14 @@ def test_calibration_skips_notes_and_starts_at_a_sentence():
     passages = pick_passages(story + notes)
     assert all("[" not in p for p in passages)
     assert passages[0][0].isupper() or passages[0][0] in "\"“"
+
+
+def test_style_options_follow_the_target_language():
+    from src.core.agent import style
+
+    assert "saya" in style.presets_for("Indonesian")["formal"][1]
+    for language in ("Spanish", "Japanese", "Chinese"):
+        presets = style.presets_for(language)
+        assert set(presets) == {"formal", "santai", "sastra"}
+        assert "saya" not in presets["formal"][1] and "aku" not in presets["santai"][1]
+    assert style.baseline_for("Spanish") == "" and style.baseline_for("id") != ""

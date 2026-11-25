@@ -340,8 +340,9 @@ class BookAgent:
         if known.get("chosen") and known["chosen"] != chosen:
             style_path.unlink(missing_ok=True)                    # another style: write it again
             (self.workdir / "calibration.md").unlink(missing_ok=True)
-        style_mod.write_style_choice(choice_path, recommended, chosen)
-        self.say(f"Style: {style_mod.STYLE_PRESETS[chosen][0]}"
+        style_mod.write_style_choice(choice_path, recommended, chosen, self.opt.target_language)
+        presets = style_mod.presets_for(self.opt.target_language)
+        self.say(f"Style: {presets[chosen][0]}"
                  + (" (recommended: " + recommended["why"] + ")" if chosen == recommended["id"] and recommended.get("why")
                     else f" (recommended was {recommended['id']})"))
 
@@ -350,7 +351,7 @@ class BookAgent:
             self.say(f"Style guide: reusing {style_path} (edit it freely, it is read as is)")
         else:
             self.say("Style guide: writing style.md")
-            name, meaning = style_mod.STYLE_PRESETS[chosen]
+            name, meaning = presets[chosen]
             self.style_text = await style_mod.build_style_guide(
                 text, profile, self.opt.target_language, terms, style_provider, style_path,
                 direction=f"{name}. {meaning}")

@@ -109,9 +109,29 @@ _CALIBRATION_NOTE = (
     "or `style.md`, delete this file and run again to see the effect.")
 
 
+def is_indonesian(target_language: str) -> bool:
+    return target_language.strip().lower() in ("indonesian", "bahasa indonesia", "id")
+
+
+#: The same styles for any other target language: the Indonesian pronouns are left out.
+GENERIC_STYLE_PRESETS = {
+    "formal": ("Formal and restrained",
+               "Use the polite, formal register and forms of address of the target language, "
+               "complete sentences and a measured tone."),
+    "santai": ("Casual and modern",
+               "Use the informal register and everyday forms of address between close characters, "
+               "short sentences and easy, everyday wording."),
+    "sastra": STYLE_PRESETS["sastra"],
+}
+
+
+def presets_for(target_language: str) -> dict:
+    """The style options (id -> (name, meaning)) that fit the target language."""
+    return STYLE_PRESETS if is_indonesian(target_language) else GENERIC_STYLE_PRESETS
+
+
 def baseline_for(target_language: str) -> str:
-    return INDONESIAN_BASELINE if target_language.strip().lower() in (
-        "indonesian", "bahasa indonesia", "id") else ""
+    return INDONESIAN_BASELINE if is_indonesian(target_language) else ""
 
 
 def _cast(terms: List[Dict[str, str]]) -> str:
@@ -160,7 +180,8 @@ async def recommend_style(text: str, profile, target_language: str, llm_provider
         return fallback
     sample, _n = document_sampler.take_distributed_samples(
         text, SAMPLE_CHARS, SAMPLE_PIECES, min_sample_size=500, separator="\n---\n")
-    options = "\n".join(f"- {key}: {name}. {meaning}" for key, (name, meaning) in STYLE_PRESETS.items())
+    presets = presets_for(target_language)
+    options = "\n".join(f"- {key}: {name}. {meaning}" for key, (name, meaning) in presets.items())
     try:
         response = await llm_provider.generate(
             _RECOMMEND_PROMPT.format(title=profile.title or "untitled", genre=profile.genre,
@@ -171,16 +192,17 @@ async def recommend_style(text: str, profile, target_language: str, llm_provider
     except Exception as exc:
         logger.info("Style recommendation failed (%s); using the genre", exc)
         return fallback
-    if data.get("style") not in STYLE_PRESETS:
+    if data.get("style") not in presets:
         return fallback
     return {"id": data["style"], "why": str(data.get("why") or "").strip() or fallback["why"],
             "method": "llm"}
 
 
-def write_style_choice(path: Path, recommended: dict, chosen: str) -> None:
+def write_style_choice(path: Path, recommended: dict, chosen: str,
+                       target_language: str = "Indonesian") -> None:
     """style.json: the options, the recommendation and the choice, for the app to show."""
     path.write_text(json.dumps({
-        "options": [{"id": k, "name": n, "description": d} for k, (n, d) in STYLE_PRESETS.items()],
+        "options": [{"id": k, "name": n, "description": d} for k, (n, d) in presets_for(target_language).items()],
         "recommended": recommended["id"], "why": recommended["why"], "chosen": chosen,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
