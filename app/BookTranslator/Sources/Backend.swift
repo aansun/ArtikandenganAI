@@ -84,29 +84,34 @@ struct BackendEnvironment {
         return url
     }
 
-    /// The developer's repository baked in at build time, if it still exists.
+    /// The developer's repository baked in at build time. A plain URL: no file access happens here, because
+    /// touching Documents, Desktop or iCloud Drive can raise macOS's folder-access prompt, which blocks the
+    /// calling thread until it is answered. Launch must never wait on that.
     static var bakedRoot: URL? {
         guard let baked = Bundle.main.object(forInfoDictionaryKey: "BTBackendRoot") as? String, !baked.isEmpty else { return nil }
-        let url = URL(fileURLWithPath: baked).standardizedFileURL
-        return FileManager.default.fileExists(atPath: url.appendingPathComponent("translate_book.py").path) ? url : nil
+        return URL(fileURLWithPath: baked).standardizedFileURL
     }
 
     static var savedRoot: URL? {
         guard let saved = UserDefaults.standard.string(forKey: "backendRoot"), !saved.isEmpty else { return nil }
-        let url = URL(fileURLWithPath: saved)
-        return FileManager.default.fileExists(atPath: url.appendingPathComponent("translate_book.py").path) ? url : nil
+        return URL(fileURLWithPath: saved)
     }
 
-    /// A library folder that already holds books (the repository's own `books/` from before the engine moved
-    /// into the app) is kept; a fresh install gets ~/Documents/NNAI Translator.
+    /// The library folder: the one chosen in Settings, else ~/Documents/NNAI Translator. (No file access.)
     static func defaultBooks() -> URL {
         if let saved = UserDefaults.standard.string(forKey: "booksDir"), !saved.isEmpty { return URL(fileURLWithPath: saved) }
-        if let legacy = bakedRoot?.appendingPathComponent("books"),
-           let names = try? FileManager.default.contentsOfDirectory(atPath: legacy.path),
-           names.contains(where: { FileManager.default.fileExists(atPath: legacy.appendingPathComponent($0).appendingPathComponent("book.json").path) }) {
-            return legacy
-        }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/NNAI Translator")
+    }
+
+    /// A library that already holds books, left in the repository's `books/` from before the engine moved into
+    /// the app. Reads the disk, so call it off the main thread, and only while no library folder is chosen.
+    static func legacyLibrary() -> URL? {
+        guard UserDefaults.standard.string(forKey: "booksDir")?.isEmpty ?? true,
+              let legacy = bakedRoot?.appendingPathComponent("books"),
+              let names = try? FileManager.default.contentsOfDirectory(atPath: legacy.path),
+              names.contains(where: { FileManager.default.fileExists(atPath: legacy.appendingPathComponent($0).appendingPathComponent("book.json").path) })
+        else { return nil }
+        return legacy
     }
 
     /// 1) a folder the user chose in Settings, 2) the engine built into the app, 3) the repository it was built from.

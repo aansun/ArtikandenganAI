@@ -418,8 +418,6 @@ final class Loc {
         "about.limit.7": ("The in-app updater is tested for version logic and release parsing, not yet against a real release.", "Pembaruan otomatis diuji untuk logika versi dan pembacaan rilis, belum terhadap rilis yang nyata."),
         "about.buy.title": ("Please buy the books", "Belilah bukunya"),
         "about.buy.body": ("This app only helps you read a book you legitimately own in a language you understand. Buy the official edition, and the official translation when there is one. Do not share or sell the translations it makes.", "Aplikasi ini hanya membantu Anda membaca buku yang sah Anda miliki dalam bahasa yang Anda pahami. Beli edisi resminya, dan terjemahan resminya bila ada. Jangan membagikan atau menjual terjemahan yang dihasilkannya."),
-        "about.main": ("Built on TBL: Translate Books with LLMs by hydropix, the main project.", "Dibangun di atas TBL: Translate Books with LLMs oleh hydropix, proyek utamanya."),
-        "about.mainLink": ("Main project on GitHub", "Proyek utama di GitHub"),
         "about.github": ("NNAI Translator on GitHub", "NNAI Translator di GitHub"),
         "about.license": ("Licensed under the GNU AGPL-3.0.", "Berlisensi GNU AGPL-3.0."),
         // Time

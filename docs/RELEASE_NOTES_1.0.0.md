@@ -32,5 +32,3 @@ How it works and what it cannot do yet are listed in the app itself, in **NNAI T
 
 This tool only helps you read a book you legitimately own in a language you understand. Buy the official
 edition, and the official translation when there is one. Do not share or sell the translations it makes.
-
-Built on [TBL: Translate Books with LLMs](https://github.com/hydropix/TranslateBooksWithLLMs) by hydropix.

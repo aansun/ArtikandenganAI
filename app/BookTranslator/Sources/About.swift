@@ -2,7 +2,6 @@ import SwiftUI
 
 enum AboutPanel {
     static let repositoryURL = URL(string: "https://github.com/aansun/ArtikandenganAI")!
-    static let mainProjectURL = URL(string: "https://github.com/hydropix/TranslateBooksWithLLMs")!
 }
 
 /// What the About window lists, as keys of the string table.
@@ -66,9 +65,7 @@ struct AboutView: View {
 
     private var footer: some View {
         VStack(spacing: 4) {
-            Text(loc.t("about.main")).font(.system(size: 12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
-            Link(loc.t("about.mainLink"), destination: AboutPanel.mainProjectURL).font(.system(size: 12))
-            Text(loc.t("about.license")).font(.system(size: 11)).foregroundStyle(Theme.faint).padding(.top, 4)
+            Text(loc.t("about.license")).font(.system(size: 11)).foregroundStyle(Theme.faint)
         }
         .frame(maxWidth: .infinity)
     }

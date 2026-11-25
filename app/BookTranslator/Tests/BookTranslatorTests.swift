@@ -137,6 +137,7 @@ final class QueueTests: XCTestCase {
         var b = book("A", stage: .translating)
         b.workdir = "A"
         m.books = [b, book("B", stage: .preparing)]
+        AppModel.flushQueueWrites()
         let again = AppModel(env: m.env)
         XCTAssertEqual(again.books.first { $0.title == "A" }?.stage, .approved)
         XCTAssertEqual(again.books.first { $0.title == "B" }, nil) // its inbox file is gone
@@ -354,8 +355,7 @@ final class EngineSetupTests: XCTestCase {
 final class AboutTests: XCTestCase {
     func testAboutLinksAndEveryTextExists() {
         XCTAssertEqual(AboutPanel.repositoryURL.absoluteString, "https://github.com/aansun/ArtikandenganAI")
-        XCTAssertEqual(AboutPanel.mainProjectURL.absoluteString, "https://github.com/hydropix/TranslateBooksWithLLMs")
-        for key in AboutContent.hood + AboutContent.limits + ["about.buy.title", "about.buy.body", "about.main", "about.license"] {
+        for key in AboutContent.hood + AboutContent.limits + ["about.buy.title", "about.buy.body", "about.license"] {
             XCTAssertNotNil(Loc.table[key], key)
         }
         XCTAssertEqual(AboutContent.hood.count, 5)

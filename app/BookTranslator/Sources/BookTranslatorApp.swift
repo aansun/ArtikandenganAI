@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct BookTranslatorApp: App {
-    @State private var model = AppModel()
+    @State private var model = AppModel(deferStartup: true)
     @State private var updater = Updater()
     @State private var loc = Loc.shared
     @State private var appearance = AppearanceStore.shared

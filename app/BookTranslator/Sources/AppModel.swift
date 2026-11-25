@@ -85,14 +85,40 @@ final class AppModel {
     private var killedForPause = false
     private var lastEngineLabel = ""
 
-    init(env: BackendEnvironment = .load()) {
+    /// ``deferStartup``: the app passes true so the window appears at once; reading the library folder can raise
+    /// macOS's folder-access prompt, which blocks whatever thread asked, so it happens off the main thread.
+    /// Tests keep the default and get a fully loaded model straight away.
+    init(env: BackendEnvironment = .load(), deferStartup: Bool = false) {
         self.env = env
         self.env.engineOrder = UserDefaults.standard.stringArray(forKey: "engineOrder") ?? []
-        loadQueue()
-        library.reload(env: env)
         if env.isBuiltIn, let engine = BackendEnvironment.bundledEngine {
             engineSetup.check(engine: engine)
         }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+            AppModel.flushQueueWrites()     // the last change to the queue must not be lost on quit
+        }
+        if deferStartup {
+            Task { await startup() }
+        } else {
+            applyQueue(Self.readQueue(file: env.queueFile, inbox: env.inbox))
+            library.reload(env: env)
+            refreshEngines()
+        }
+    }
+
+    private func startup() async {
+        let current = env
+        let outcome = await Task.detached(priority: .userInitiated) { () -> (URL?, [QueueBook]) in
+            let legacy = BackendEnvironment.legacyLibrary()
+            let target = legacy.map { BackendEnvironment(root: current.root, booksDir: $0) } ?? current
+            return (legacy, AppModel.readQueue(file: target.queueFile, inbox: target.inbox))
+        }.value
+        if let legacy = outcome.0 {
+            UserDefaults.standard.set(legacy.path, forKey: "booksDir")   // remembered: later launches skip the search
+            env.booksDir = legacy
+        }
+        applyQueue(outcome.1)
+        library.reload(env: env)
         refreshEngines()
     }
 
@@ -564,17 +590,26 @@ final class AppModel {
 
     // MARK: - Persistence
 
+    private static let queueIO = DispatchQueue(label: "app.queue-io", qos: .utility)
+
+    /// Waits until every queued write has reached the disk (on quit, and in tests).
+    nonisolated static func flushQueueWrites() { queueIO.sync {} }
+
     private func saveQueue() {
         guard let data = try? JSONEncoder.pretty.encode(books) else { return }
-        try? FileManager.default.createDirectory(at: env.booksDir, withIntermediateDirectories: true)
-        try? data.write(to: env.queueFile, options: .atomic)
+        let dir = env.booksDir, file = env.queueFile
+        Self.queueIO.async {          // off the main thread: the folder may need the user's permission
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? data.write(to: file, options: .atomic)
+        }
     }
 
-    private func loadQueue() {
-        guard let data = try? Data(contentsOf: env.queueFile),
-              var saved = try? JSONDecoder().decode([QueueBook].self, from: data) else { return }
+    /// The saved queue, with books whose file is gone dropped and interrupted work put back in line. Reads the disk.
+    nonisolated static func readQueue(file: URL, inbox: URL) -> [QueueBook] {
+        guard let data = try? Data(contentsOf: file),
+              var saved = try? JSONDecoder().decode([QueueBook].self, from: data) else { return [] }
         let fm = FileManager.default
-        saved = saved.filter { fm.fileExists(atPath: env.inbox.appendingPathComponent($0.fileName).path) || $0.workdir != nil }
+        saved = saved.filter { fm.fileExists(atPath: inbox.appendingPathComponent($0.fileName).path) || $0.workdir != nil }
         for index in saved.indices {
             switch saved[index].stage {
             case .reading: saved[index].stage = .uploaded
@@ -583,6 +618,11 @@ final class AppModel {
             default: break
             }
         }
+        return saved
+    }
+
+    private func applyQueue(_ saved: [QueueBook]) {
+        guard !saved.isEmpty else { return }
         books = saved
     }
 

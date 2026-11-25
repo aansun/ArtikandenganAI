@@ -22,7 +22,7 @@ order, and they are translated one after another while you do something else.
 
 ## How it differs from the main project
 
-[TBL](https://github.com/hydropix/TranslateBooksWithLLMs) is a general translator: a web and desktop app
+The main project (see below) is a general translator: a web and desktop app
 for many formats (EPUB, SRT, DOCX, PDF, TXT, PGN), with local models through Ollama or cloud providers
 through an API key. NNAI Translator narrows that down to translating whole **books** on a Mac, and adds:
 
