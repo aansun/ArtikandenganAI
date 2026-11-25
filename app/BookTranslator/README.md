@@ -4,19 +4,26 @@ A SwiftUI app around `translate_book.py`. It has no translation logic of its own
 engine as a background process and reads the files the engine writes (see "For the Mac app" in
 `docs/BOOK_AGENT.md`).
 
-Three steps, as the sidebar shows them:
+The UI follows the design canvas (a stage bar with the three numbered steps at the top, the gear
+opens Settings). Three steps:
 
 1. **Add**: drop many EPUB/TXT books (or whole folders of volumes) on the left card. The engine
-   reads each one (`--inspect`: title, author, volumes, fiction or not, estimated time). Press Add
-   or drag a book to the right card; the top book is translated first, and the order can be changed
-   by dragging. Finished books leave this screen.
+   reads each one (`--inspect`: title, author, volumes, fiction or not, estimated time; the type chip
+   can be flipped). Press Add or drag a book to the right card; the top book is translated first,
+   and the order can be changed by dragging or with the arrows. **Start translating** moves the
+   ready books into the Progress queue. Finished books leave this screen.
 2. **Progress**: one book runs, the rest wait. A fiction book is prepared first (`--prepare-only`:
    names locked, style recommended from the content) and waits for **Review**; the other books do
    not wait for it. Pause keeps the progress (checkpoints), and the queue survives a restart.
 3. **Library**: the finished books, grouped by type or author and sorted as you like. Selecting a
    book shows its volumes, the quality audit, and the **metadata read from the EPUB itself** for
-   checking; "Repair metadata" and "Translate again" run the engine's `--refresh-metadata` and
-   `--redo`.
+   checking. **Change** next to a field edits it in every volume (`--set-metadata`), and "Mark
+   metadata as correct" clears the Check flag on the card; **Find online** looks the book up the way
+   Calibre does: by the ISBN already in the EPUB first (an exact edition), else by title and
+   author, on Open Library (no key) and Google Books (your own free API key, kept in the Keychain; set it in
+   Settings) and lets you tick the fields to take (author, publisher, date, subjects, ISBN, cover,
+   description), filling only empty fields by default. Amazon has no public catalogue API, so its
+   button only opens the Amazon search page; "Translate again" runs `--redo`.
 
 Settings: app language (English or Indonesian, switched live), version and updates, the engines
 found by `--detect` (first active = main, others = backup), quality (`--profile`), library and

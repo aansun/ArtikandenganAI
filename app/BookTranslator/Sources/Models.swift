@@ -33,7 +33,8 @@ struct InspectResult: Codable, Equatable {
 enum Stage: String, Codable {
     case reading      // being inspected
     case uploaded     // in the left card
-    case ready        // in the right card, waiting
+    case ready        // in the right card of Add, not started yet
+    case queued       // started: waiting in the Progress queue
     case preparing    // glossary, style and sample being made
     case needsReview  // waiting for the user's approval
     case approved     // reviewed, waiting to be translated
@@ -58,7 +59,7 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var pct = 0
     var error = ""
 
-    var isQueued: Bool { [.ready, .preparing, .needsReview, .approved, .translating, .failed].contains(stage) }
+    var isQueued: Bool { [.queued, .preparing, .needsReview, .approved, .translating, .failed].contains(stage) }
 }
 
 /// What the engine reports in books/status.json while it works.
@@ -123,6 +124,7 @@ struct LibraryBook: Codable, Identifiable, Equatable {
     var volumes: [VolumeInfo]
     var folder: String = ""        // set by the loader: the folder name under books/
     var authorName: String = ""    // set by the loader from the first EPUB
+    var series: String = ""        // set by the loader from the first EPUB
 
     var id: String { folder }
     var kind: BookKind { (isFiction ?? false) ? .fiction : .nonfiction }

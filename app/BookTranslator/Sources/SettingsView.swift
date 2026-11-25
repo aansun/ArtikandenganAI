@@ -1,150 +1,218 @@
 import SwiftUI
 
+/// Settings, as in the design: grouped white cards of rows (title and hint left, control right).
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
     @Environment(Updater.self) private var updater
+    @State private var apiKey = ""
+    @State private var keyStored = !Secrets.googleBooksKey.isEmpty
 
     var body: some View {
         @Bindable var model = model
-        @Bindable var loc = loc
         @Bindable var updater = updater
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                SectionTitle(text: loc.t("nav.settings"))
-                if !model.env.isValid { backendWarning }
+            VStack(spacing: 16) {
+                if !model.env.isValid { warning }
 
-                group(loc.t("settings.language"), hint: loc.t("settings.languageHint")) {
-                    Picker("", selection: $loc.language) {
-                        ForEach(AppLanguage.allCases) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
-                }
-
-                group(loc.t("settings.version")) { versionBlock(updater: updater) }
-
-                group(loc.t("settings.engines"), hint: loc.t("settings.enginesHint")) { enginesBlock }
-
-                group(loc.t("settings.quality"), hint: loc.t("settings.qualityHint")) {
-                    Picker("", selection: $model.quality) {
-                        ForEach(["economy", "balanced", "best"], id: \.self) { Text(loc.t("settings.q.\($0)")).tag($0) }
-                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
-                }
-
-                group(loc.t("settings.folder")) {
-                    pathRow(model.env.booksDir) { url in
-                        UserDefaults.standard.set(url.path, forKey: "booksDir")
-                        model.env.booksDir = url
-                        model.library.reload(env: model.env)
+                group {
+                    row(loc.t("settings.language"), loc.t("settings.languageHint2")) {
+                        Segmented(items: AppLanguage.allCases.map { ($0, $0 == .id ? "Indonesia" : "English") },
+                                  selection: Binding(get: { loc.language }, set: { loc.language = $0 }), fontSize: 13, hPad: 14)
                     }
                 }
 
-                group(loc.t("settings.backend")) {
-                    pathRow(model.env.root) { url in
-                        UserDefaults.standard.set(url.path, forKey: "backendRoot")
-                        model.env.root = url
-                        model.refreshEngines(force: true)
+                group {
+                    row(Text(loc.t("app.title")).font(.system(size: 14, weight: .medium))
+                        + Text(" " + loc.t("settings.versionNow", Updater.currentVersion, Updater.currentBuild)).font(.system(size: 14)).foregroundColor(Theme.muted),
+                        updater.lastChecked.map { loc.t("settings.lastChecked", $0.formatted(date: .abbreviated, time: .shortened)) } ?? loc.t("settings.never")) {
+                        Button(updater.state == .checking ? loc.t("settings.checking") : loc.t("settings.check")) { Task { await updater.check() } }
+                            .buttonStyle(GhostButtonStyle()).disabled(updater.state == .checking || updater.state == .downloading)
+                    }
+                    divider
+                    row(loc.t("settings.auto"), loc.t("settings.autoHint")) { Toggle("", isOn: $updater.autoUpdate).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+                    updateBanner
+                }
+
+                group { enginesBlock }
+
+                group {
+                    row(loc.t("settings.qualityTitle"), loc.t("settings.q.hint.\(model.quality)")) {
+                        Segmented(items: ["economy", "balanced", "best"].map { ($0, loc.t("settings.q.\($0)")) },
+                                  selection: $model.quality, fontSize: 13, hPad: 12)
+                    }
+                    divider
+                    row(loc.t("settings.target"), loc.t("settings.targetHint")) {
+                        Text(loc.t("langname.Indonesian")).font(.system(size: 13))
+                            .padding(.horizontal, 12).padding(.vertical, 5).background(Color.white, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.buttonLine))
                     }
                 }
 
-                group(loc.t("settings.notifications"), hint: loc.t("settings.notificationsHint")) {
-                    Toggle("", isOn: $model.notificationsOn).labelsHidden()
+                group {
+                    row(loc.t("settings.libraryTitle"), model.env.booksDir.path) {
+                        HStack {
+                            Button(loc.t("settings.reveal")) { NSWorkspace.shared.activateFileViewerSelecting([model.env.booksDir]) }.buttonStyle(GhostButtonStyle())
+                            Button(loc.t("settings.change")) { chooseFolder(model.env.booksDir) { url in
+                                UserDefaults.standard.set(url.path, forKey: "booksDir"); model.env.booksDir = url; model.library.reload(env: model.env, force: true)
+                            } }.buttonStyle(GhostButtonStyle())
+                        }
+                    }
+                    divider
+                    row(loc.t("settings.backend"), model.env.root.path) {
+                        Button(loc.t("settings.change")) { chooseFolder(model.env.root) { url in
+                            UserDefaults.standard.set(url.path, forKey: "backendRoot"); model.env.root = url; model.refreshEngines(force: true)
+                        } }.buttonStyle(GhostButtonStyle())
+                    }
+                    divider
+                    row(loc.t("settings.addToBooks"), loc.t("settings.addToBooksHint")) { Toggle("", isOn: $model.addToBooks).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+                }
+
+                group {
+                    row(loc.t("settings.onlineMeta"), loc.t("settings.onlineMetaHint")) {
+                        HStack {
+                            if keyStored {
+                                Pill(text: loc.t("settings.keySaved"), bg: Theme.okBg, fg: Theme.okText, size: 12)
+                                Button(loc.t("settings.keyRemove")) { Secrets.googleBooksKey = ""; keyStored = false }.buttonStyle(GhostButtonStyle())
+                            } else {
+                                SecureField(loc.t("settings.keyPlaceholder"), text: $apiKey).textFieldStyle(.roundedBorder).frame(width: 180)
+                                Button(loc.t("settings.keySave")) { Secrets.googleBooksKey = apiKey.trimmingCharacters(in: .whitespaces); apiKey = ""; keyStored = !Secrets.googleBooksKey.isEmpty }
+                                    .buttonStyle(GhostButtonStyle()).disabled(apiKey.isEmpty)
+                            }
+                        }
+                    }
+                }
+
+                group {
+                    row(loc.t("settings.keepAwake"), loc.t("settings.keepAwakeHint")) { Toggle("", isOn: $model.keepAwake).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+                    divider
+                    row(loc.t("settings.notifyVolume"), "") { Toggle("", isOn: $model.notifyVolume).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+                    divider
+                    row(loc.t("settings.notifyAttention"), loc.t("settings.notifyAttentionHint")) { Toggle("", isOn: $model.notifyAttention).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
                 }
             }
-            .padding(24)
-            .frame(maxWidth: 680, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24).padding(.vertical, 20)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 700, height: 760)
+        .background(Theme.window)
     }
 
-    private var backendWarning: some View {
+    // MARK: - Pieces
+
+    private var warning: some View {
         Label(loc.t("settings.backendMissing"), systemImage: "exclamationmark.triangle.fill")
-            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .foregroundStyle(Theme.warnText).background(Theme.warnBackground, in: RoundedRectangle(cornerRadius: 10))
+            .font(.system(size: 13)).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Theme.warnText).background(Theme.warnBg, in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func group<Content: View>(_ title: String, hint: String = "", @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
-            if !hint.isEmpty { Text(hint).font(.caption).foregroundStyle(.secondary) }
-            content()
-        }
-        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.10)))
+    private var divider: some View { Rectangle().fill(Theme.rowLine).frame(height: 1) }
+
+    private func group<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        CardBox(radius: 12) { VStack(spacing: 0, content: content) }
     }
 
-    // MARK: - Version
+    private func row<Control: View>(_ title: String, _ hint: String, @ViewBuilder control: () -> Control) -> some View {
+        row(Text(title).font(.system(size: 14, weight: .medium)), hint, control: control)
+    }
 
-    @ViewBuilder private func versionBlock(updater: Updater) -> some View {
-        @Bindable var updater = updater
-        HStack {
-            Text(loc.t("settings.versionNow", Updater.currentVersion, Updater.currentBuild)).font(.body.weight(.medium))
-            Spacer()
-            Button(updater.state == .checking ? loc.t("settings.checking") : loc.t("settings.check")) {
-                Task { await updater.check() }
-            }.disabled(updater.state == .checking || updater.state == .downloading)
-        }
-        switch updater.state {
-        case .upToDate: Label(loc.t("settings.upToDate"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failed(let message): Text(loc.t("settings.updateFailed", message)).font(.caption).foregroundStyle(.secondary)
-        case .downloading: HStack { ProgressView().controlSize(.small); Text(loc.t("settings.installing")) }
-        case .available(let release):
-            VStack(alignment: .leading, spacing: 8) {
-                Text(loc.t("settings.available", release.version)).font(.body.weight(.semibold))
-                if !release.notes.isEmpty { Text(release.notes).font(.callout).foregroundStyle(.secondary).lineLimit(6) }
-                if model.isBusy {
-                    Text(loc.t("settings.waitIdle")).font(.caption).foregroundStyle(Theme.warnText)
-                } else {
-                    Button(loc.t("settings.install")) { Task { await updater.install() } }.buttonStyle(.borderedProminent)
-                }
+    private func row<Control: View>(_ title: Text, _ hint: String, @ViewBuilder control: () -> Control) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                title
+                if !hint.isEmpty { Text(hint).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2).truncationMode(.middle) }
             }
-            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            Spacer(minLength: 8)
+            control()
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+    }
+
+    @ViewBuilder private var updateBanner: some View {
+        switch updater.state {
+        case .available(let release):
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(loc.t("settings.available", release.version)).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accentDark)
+                    Text(release.notes.isEmpty ? loc.t("settings.updateAfter") : String(release.notes.prefix(160))).font(.system(size: 12)).foregroundStyle(Theme.neutralText).lineLimit(2)
+                }
+                Spacer()
+                if model.isBusy { Text(loc.t("settings.waitIdle")).font(.system(size: 12)).foregroundStyle(Theme.warnIcon) }
+                else { Button(loc.t("settings.install")) { Task { await updater.install() } }.buttonStyle(PrimaryButtonStyle(radius: 8)) }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12).background(Theme.readyBg)
+        case .downloading:
+            HStack { ProgressView().controlSize(.small); Text(loc.t("settings.installing")).font(.system(size: 13)) }.padding(16)
+        case .upToDate:
+            Label(loc.t("settings.upToDate"), systemImage: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Theme.green)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+        case .failed(let message):
+            Text(loc.t("settings.updateFailed", message)).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 10)
         default: EmptyView()
         }
-        Divider()
-        Toggle(loc.t("settings.auto"), isOn: $updater.autoUpdate)
-        Text(loc.t("settings.autoHint")).font(.caption).foregroundStyle(.secondary)
     }
 
     // MARK: - Engines
 
+    private static let badge: [String: (String, Color)] = [
+        "claude": ("C", Color(hex: 0xD97757)), "codex": ("X", Color(hex: 0x1D1D1F)), "agy": ("A", Color(hex: 0x2F7BF0)),
+    ]
+
     private var enginesBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(loc.t("settings.engines")).font(.system(size: 14, weight: .medium))
+                Text(loc.t("settings.enginesHint2")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
             if model.enginesLoading && model.engines.isEmpty {
-                HStack { ProgressView().controlSize(.small); Text(loc.t("settings.detecting")) }
+                HStack { ProgressView().controlSize(.small); Text(loc.t("settings.detecting")).font(.system(size: 13)) }.padding(16)
             }
-            ForEach(model.engines) { engine in
-                HStack(alignment: .top) {
-                    Image(systemName: engine.active ? "checkmark.circle.fill" : "minus.circle")
-                        .foregroundStyle(engine.active ? Color.green : Color.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(engine.label).font(.body.weight(.medium))
-                        if !engine.active { Text(engine.reason).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                    }
-                    Spacer()
-                    if engine.role == "main" { Chip(text: loc.t("settings.main"), tint: Theme.accent) }
-                    else if engine.role == "backup" { Chip(text: loc.t("settings.backup")) }
-                    else { Chip(text: loc.t("settings.inactive")) }
-                }
+            ForEach(Array(model.engines.enumerated()), id: \.element.id) { index, engine in
+                divider
+                engineRow(engine, backupNumber: model.engines.prefix(index).filter { $0.active }.count)
             }
-            Button(loc.t("settings.recheck")) { model.refreshEngines(force: true) }.disabled(model.enginesLoading)
+            divider
+            HStack {
+                Text(loc.t("settings.dragHint")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Spacer()
+                Button(loc.t("settings.recheck")) { model.refreshEngines(force: true) }.buttonStyle(GhostButtonStyle()).disabled(model.enginesLoading)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10).background(Color(hex: 0xFAFAFB))
         }
     }
 
-    private func pathRow(_ url: URL, choose: @escaping (URL) -> Void) -> some View {
-        HStack {
-            Text(url.path).font(.callout.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            Spacer()
-            Button(loc.t("settings.reveal")) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-            Button(loc.t("settings.choose")) {
-                let panel = NSOpenPanel()
-                panel.canChooseDirectories = true
-                panel.canChooseFiles = false
-                panel.directoryURL = url
-                if panel.runModal() == .OK, let picked = panel.url { choose(picked) }
+    private func engineRow(_ engine: EngineInfo, backupNumber: Int) -> some View {
+        let (letter, color) = Self.badge[engine.name] ?? ("?", .gray)
+        let waiting = !engine.active && engine.reason.lowercased().contains("quota") || engine.reason.lowercased().contains("limit")
+        return HStack(spacing: 12) {
+            GripDots()
+            Text(letter).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 30, height: 30).background(color, in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(engine.label).font(.system(size: 14, weight: .medium))
+                Text(engine.active ? (engine.role == "main" ? loc.t("settings.signedIn") : loc.t("settings.readyToReplace")) : engine.reason)
+                    .font(.system(size: 12)).foregroundStyle(engine.active ? Theme.muted : Theme.warnIcon).lineLimit(2)
             }
+            Spacer()
+            if engine.role == "main" { Pill(text: loc.t("settings.main"), bg: Theme.fictionBg, fg: Theme.accentDark, size: 12) }
+            else if engine.role == "backup" { Pill(text: loc.t("settings.backupN", backupNumber), bg: Theme.neutralBg, fg: Theme.neutralText, size: 12) }
+            if engine.active { Pill(text: loc.t("settings.active"), bg: Theme.okBg, fg: Theme.okText, size: 12) }
+            else if waiting { Pill(text: loc.t("settings.waiting"), bg: Theme.warnBg, fg: Theme.warnText, size: 12) }
+            else { Pill(text: loc.t("settings.inactive"), bg: Theme.neutralBg, fg: Theme.neutralText, size: 12) }
         }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .draggable(engine.name)
+        .dropDestination(for: String.self) { names, _ in
+            if let first = names.first { model.moveEngine(first, before: engine.name) }
+            return true
+        }
+    }
+
+    private func chooseFolder(_ start: URL, pick: @escaping (URL) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.directoryURL = start
+        if panel.runModal() == .OK, let url = panel.url { pick(url) }
     }
 }

@@ -8,9 +8,11 @@ final class LibraryStore {
     var books: [LibraryBook] = []
     var covers: [String: NSImage] = [:]
     private var loading = false
+    /// Test hook: keep the books as set, ignore rescans.
+    var frozen = false
 
-    func reload(env: BackendEnvironment) {
-        guard !loading else { return }
+    func reload(env: BackendEnvironment, force: Bool = false) {
+        guard !frozen, !loading || force else { return }
         loading = true
         let root = env.booksDir
         Task.detached(priority: .utility) {
@@ -41,6 +43,7 @@ final class LibraryStore {
         if let first = book.volumes.first(where: { !$0.output.isEmpty && FileManager.default.fileExists(atPath: $0.output) }),
            let meta = EpubReader.read(URL(fileURLWithPath: first.output)) {
             book.authorName = meta.creators.joined(separator: ", ")
+            book.series = meta.series
         }
         return book
     }
@@ -60,7 +63,7 @@ final class LibraryStore {
     func book(folder: String) -> LibraryBook? { books.first { $0.folder == folder } }
 }
 
-enum LibraryGrouping: String, CaseIterable { case kind, author, none }
+enum LibraryGrouping: String, CaseIterable { case none, series, author, kind }
 enum LibrarySort: String, CaseIterable { case recent, title, author }
 
 struct LibraryGroup: Identifiable {
@@ -89,6 +92,14 @@ enum LibraryArranger {
             return [BookKind.fiction, .nonfiction].compactMap { kind in
                 let rows = items.filter { $0.kind == kind }
                 return rows.isEmpty ? nil : LibraryGroup(id: kind.rawValue, label: loc.t(kind.key), books: rows)
+            }
+        case .series:
+            let names = Array(Set(items.map { $0.series })).sorted {
+                if $0.isEmpty != $1.isEmpty { return !$0.isEmpty }
+                return $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+            }
+            return names.map { name in
+                LibraryGroup(id: name, label: name.isEmpty ? loc.t("library.noSeries") : name, books: items.filter { $0.series == name })
             }
         case .author:
             let names = Array(Set(items.map { $0.authorName })).sorted {
