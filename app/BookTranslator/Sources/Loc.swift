@@ -52,7 +52,7 @@ final class Loc {
         "nav.process": ("Progress", "Proses"),
         "nav.library": ("Library", "Hasil"),
         "nav.settings": ("Settings", "Pengaturan"),
-        "app.title": ("Book Translator", "Penerjemah Buku"),
+        "app.title": ("NNAI Translator", "NNAI Translator"),
         // Input
         "input.uploaded": ("Uploaded books", "Buku diunggah"),
         "input.count": ("%d books", "%d buku"),
@@ -199,7 +199,7 @@ final class Loc {
         "settings.backendMissing": ("The translator engine was not found here. Choose the folder that contains translate_book.py.", "Mesin penerjemah tidak ditemukan di sini. Pilih folder yang berisi translate_book.py."),
         // Menu bar and notifications
         "menu.idle": ("Idle", "Tidak ada yang berjalan"),
-        "menu.open": ("Open Book Translator", "Buka Penerjemah Buku"),
+        "menu.open": ("Open NNAI Translator", "Buka NNAI Translator"),
         "menu.quit": ("Quit", "Keluar"),
         "notify.done": ("Finished: %@", "Selesai: %@"),
         "notify.doneBody": ("The translation is in your library.", "Terjemahannya ada di pustaka Anda."),
@@ -395,6 +395,12 @@ final class Loc {
         "settings.engineRepair": ("Repair", "Perbaiki"),
         "settings.engineUseFolder": ("Use a folder…", "Pakai folder…"),
         "settings.engineUseBuiltIn": ("Use the built-in engine", "Pakai mesin bawaan"),
+        "about.menu": ("About NNAI Translator", "Tentang NNAI Translator"),
+        "about.blurb": ("Translates whole books with the AI command-line tools you already use (Claude, Codex, Antigravity), keeping names and style consistent.", "Menerjemahkan buku utuh dengan alat AI di command line yang sudah Anda pakai (Claude, Codex, Antigravity), dengan nama dan gaya yang konsisten."),
+        "about.source": ("Source code and issues", "Kode sumber dan laporan masalah"),
+        "settings.github": ("GitHub", "GitHub"),
+        "settings.githubHint": ("Source code, releases and issues", "Kode sumber, rilis, dan laporan masalah"),
+        "settings.open": ("Open", "Buka"),
         // Time
         "time.min": ("%d min", "%d menit"),
         "time.h": ("%d h", "%d jam"),

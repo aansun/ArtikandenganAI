@@ -98,7 +98,7 @@ struct BackendEnvironment {
     }
 
     /// A library folder that already holds books (the repository's own `books/` from before the engine moved
-    /// into the app) is kept; a fresh install gets ~/Documents/Book Translator.
+    /// into the app) is kept; a fresh install gets ~/Documents/NNAI Translator.
     static func defaultBooks() -> URL {
         if let saved = UserDefaults.standard.string(forKey: "booksDir"), !saved.isEmpty { return URL(fileURLWithPath: saved) }
         if let legacy = bakedRoot?.appendingPathComponent("books"),
@@ -106,7 +106,7 @@ struct BackendEnvironment {
            names.contains(where: { FileManager.default.fileExists(atPath: legacy.appendingPathComponent($0).appendingPathComponent("book.json").path) }) {
             return legacy
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Book Translator")
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/NNAI Translator")
     }
 
     /// 1) a folder the user chose in Settings, 2) the engine built into the app, 3) the repository it was built from.

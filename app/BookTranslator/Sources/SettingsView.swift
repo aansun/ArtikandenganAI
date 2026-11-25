@@ -109,6 +109,10 @@ struct SettingsView: View {
                     divider
                     row(loc.t("settings.auto"), loc.t("settings.autoHint")) { Toggle("", isOn: $updater.autoUpdate).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
                     updateBanner
+                    divider
+                    row(loc.t("settings.github"), loc.t("settings.githubHint")) {
+                        Button(loc.t("settings.open")) { NSWorkspace.shared.open(AboutPanel.repositoryURL) }.buttonStyle(GhostButtonStyle())
+                    }
                 }
             }
             .padding(.horizontal, 24).padding(.vertical, 20)

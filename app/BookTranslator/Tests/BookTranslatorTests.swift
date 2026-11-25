@@ -349,3 +349,16 @@ final class EngineSetupTests: XCTestCase {
         XCTAssertFalse(env.isReady)
     }
 }
+
+
+final class AboutTests: XCTestCase {
+    func testAboutLinksToTheRepository() {
+        let credits = AboutPanel.credits(Loc.shared)
+        var found: URL?
+        credits.enumerateAttribute(.link, in: NSRange(location: 0, length: credits.length)) { value, _, _ in
+            if let url = value as? URL { found = url }
+        }
+        XCTAssertEqual(found?.absoluteString, "https://github.com/aansun/ArtikandenganAI")
+        XCTAssertEqual(AboutPanel.repositoryURL.host, "github.com")
+    }
+}
