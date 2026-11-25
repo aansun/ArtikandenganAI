@@ -69,7 +69,8 @@ struct ProcessView: View {
                         Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.volumes))")
                             .font(.system(size: 13)).foregroundStyle(Theme.muted)
                     }
-                    Text(preparing ? loc.t("process.preparing") : (paused ? loc.t("process.status.paused") : loc.t("process.status.translating", max(book.volume, 1))))
+                    Text(preparing ? loc.t("process.preparing") : (paused ? loc.t("process.status.paused")
+                            : (book.polishing ? loc.t("process.status.polishing", max(book.volume, 1)) : loc.t("process.status.translating", max(book.volume, 1)))))
                         .font(.system(size: 14, weight: .medium)).foregroundStyle(paused ? Theme.warnIcon : Theme.accent)
                     engineLine
                     if !preparing {

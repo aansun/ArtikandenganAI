@@ -96,6 +96,7 @@ def test_status_json_tells_the_app_what_is_running(env):  # noqa: F811
     assert translate_book.main(["--non-fiction", "--no-refine"]) == 0
     status = json.loads((env / "books" / "status.json").read_text())
     assert status["state"] == "idle" and status["book"] == "saga"
+    assert status["phase"] == "translate"     # the app tells the translation pass from the polish pass by this
 
 
 def test_no_active_engine_is_reported_with_the_reason(env, monkeypatch, capsys):  # noqa: F811

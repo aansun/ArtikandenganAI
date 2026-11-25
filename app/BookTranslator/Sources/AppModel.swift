@@ -538,7 +538,10 @@ final class AppModel {
               let status = try? JSONDecoder.snake.decode(EngineStatus.self, from: data) else { return }
         self.status = status
         update(id) {
-            if $0.stage == .translating { $0.volume = status.volume; $0.pct = status.pct; $0.volumes = max(status.volumes, $0.volumes) }
+            if $0.stage == .translating {
+                $0.volume = status.volume; $0.pct = status.pct; $0.volumes = max(status.volumes, $0.volumes)
+                $0.polishing = status.phase == "refine"
+            }
         }
         if let running = book(id), let folder = running.workdir ?? Optional(status.book), status.volume > 0 {
             let seen = lastVolumeSeen[folder] ?? status.volume

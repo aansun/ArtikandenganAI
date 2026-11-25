@@ -232,6 +232,7 @@ final class Loc {
         "input.toUploaded": ("Return to the uploaded list", "Kembalikan ke daftar unggahan"),
         "input.toInput": ("Return to Add", "Kembalikan ke Masukkan"),
         "process.status.translating": ("Translating volume %d", "Menerjemahkan jilid %d"),
+        "process.status.polishing": ("Polishing volume %d: the translation is done", "Menghaluskan jilid %d: terjemahannya sudah selesai"),
         "process.status.paused": ("Paused", "Dijeda"),
         "process.eta.paused": ("Resume any time. Progress is saved.", "Lanjutkan kapan saja. Progres tersimpan."),
         "process.eta.today": ("Estimated to finish today around %@", "Perkiraan selesai hari ini sekitar %@"),

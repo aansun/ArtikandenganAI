@@ -416,7 +416,11 @@ class BookAgent:
             total = stats.get("total_chunks", 0) or 0
             if time.time() - seen["at"] >= 2 and total:
                 seen["at"] = time.time()
-                self._write_status("running", vol, int(100 * (stats.get("completed_chunks", 0) or 0) / total))
+                try:    # the polish pass counts its own chunks from 0: say which pass this percentage belongs to
+                    phase = (manager.get_job(job_id) or {}).get("job_phase") or "translate"
+                except Exception:
+                    phase = "translate"
+                self._write_status("running", vol, int(100 * (stats.get("completed_chunks", 0) or 0) / total), phase)
 
         self._write_status("running", vol, 0)
         result = run_cli_job(job, cli_logger, translation_id=job_id,
@@ -526,14 +530,15 @@ class BookAgent:
                 for v in self.state.volumes if v.index in self._qa_results]
         (self.workdir / "qa_report.md").write_text(qa_mod.report_markdown(title, rows), encoding="utf-8")
 
-    def _write_status(self, state: str, vol: Optional[VolumeState] = None, pct: int = 0) -> None:
+    def _write_status(self, state: str, vol: Optional[VolumeState] = None, pct: int = 0,
+                      phase: str = "translate") -> None:
         """books/status.json: what is running now, for the app (written atomically)."""
         from src.core.llm.providers.chain import last_engine
         engine = {"claude-cli": "Claude", "codex": "Codex", "agy": "Antigravity"}.get(last_engine(), "")
         title = ((self.profile.title if self.profile else "") or self.workdir.name)
         data = {"state": state, "updated_at": _now(), "book": self.workdir.name, "title": title,
                 "volume": vol.index if vol else 0, "volumes": len(self.state.volumes), "pct": pct,
-                "engine": engine}
+                "phase": phase, "engine": engine}
         try:
             self.root.mkdir(parents=True, exist_ok=True)
             tmp = self.root / "status.json.tmp"

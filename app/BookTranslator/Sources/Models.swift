@@ -64,6 +64,7 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var workdir: String?          // folder name under books/ once the engine has taken the book
     var volume = 0
     var pct = 0
+    var polishing = false         // the percentage belongs to the polish pass, not the translation
     var error = ""
 
     var isQueued: Bool { [.queued, .preparing, .needsReview, .approved, .translating, .failed].contains(stage) }
@@ -78,6 +79,8 @@ struct EngineStatus: Codable, Equatable {
     var volumes: Int
     var pct: Int
     var engine: String
+    /// "translate" or "refine": the polish pass counts its own chunks again from 0.
+    var phase: String?
 }
 
 struct StyleOption: Codable, Identifiable, Equatable {
