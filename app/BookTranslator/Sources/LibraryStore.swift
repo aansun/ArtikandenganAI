@@ -60,6 +60,9 @@ final class LibraryStore {
         }
     }
 
+    /// Forget a cached cover so the next reload reads the new one from the EPUB.
+    func dropCover(folder: String) { covers[folder] = nil }
+
     func book(folder: String) -> LibraryBook? { books.first { $0.folder == folder } }
 }
 

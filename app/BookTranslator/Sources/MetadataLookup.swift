@@ -12,6 +12,7 @@ struct MetadataCandidate: Identifiable, Equatable {
     var description = ""
     var subjects: [String] = []
     var isbn = ""
+    var altISBNs: [String] = []   // other editions' ISBNs, for finding a cover
     var coverURL: URL?
     var pageURL: URL?
     /// Which catalogues this record comes from (several for a combined record).
@@ -29,11 +30,13 @@ enum MetadataSource: String, CaseIterable, Identifiable {
 
 enum LookupError: LocalizedError, Equatable {
     case needsKey
+    case isbnMissed            // the ISBN gave no record (or the catalogue did not answer): title matches follow
     case rejected(String)
     case network(String)
     var errorDescription: String? {
         switch self {
         case .needsKey: return "needsKey"
+        case .isbnMissed: return "isbnMissed"
         case .rejected(let m), .network(let m): return m
         }
     }
@@ -43,14 +46,21 @@ enum LookupError: LocalizedError, Equatable {
 /// keyless requests with a zero quota nowadays, so it uses the user's own free API key.
 /// Amazon has no public catalogue API (its Product Advertising API needs an affiliate account),
 /// so the app only opens the Amazon search page for the user to read.
+actor ResultBox {
+    private var records: [MetadataCandidate] = []
+    private var notes: [LookupError] = []
+    func add(_ more: [MetadataCandidate]) { records += more }
+    func note(_ error: LookupError) { notes.append(error) }
+    func snapshot() -> ([MetadataCandidate], [LookupError]) { (records, notes) }
+}
+
 enum MetadataLookup {
     /// Calibre's order of work: by ISBN when the book has one (an exact edition), else by title
     /// and author, on every catalogue at once; the records are scored against the book and merged.
     static func identify(isbn: String?, title: String, author: String, googleKey: String?) async -> (records: [MetadataCandidate], notes: [LookupError]) {
-        var gathered: [MetadataCandidate] = []
-        var notes: [LookupError] = []
+        let box = ResultBox()
         let sources: [MetadataSource] = (googleKey?.isEmpty == false) ? [.openLibrary, .googleBooks] : [.openLibrary]
-        if googleKey?.isEmpty != false { notes.append(.needsKey) }
+        if googleKey?.isEmpty != false { await box.note(.needsKey) }
 
         func run(isbn: String?) async {
             await withTaskGroup(of: (MetadataSource, Result<[MetadataCandidate], Error>).self) { group in
@@ -65,15 +75,38 @@ enum MetadataLookup {
                 }
                 for await (_, result) in group {
                     switch result {
-                    case .success(let found): gathered += found.map { var c = $0; c.matchedByISBN = isbn != nil; return c }
-                    case .failure(let error): notes.append((error as? LookupError) ?? .network(error.localizedDescription))
+                    case .success(let found): await box.add(found.map { var c = $0; c.matchedByISBN = isbn != nil; return c })
+                    case .failure(let error): await box.note((error as? LookupError) ?? .network(error.localizedDescription))
                     }
                 }
             }
         }
-        if let isbn { await run(isbn: isbn) }
-        if gathered.isEmpty { await run(isbn: nil) }
+        // Both passes run at once: Open Library's ISBN endpoint is sometimes slow, and waiting for it
+        // before starting the title search made a slow answer look like "no ISBN match".
+        if let isbn {
+            async let byISBN: Void = run(isbn: isbn)
+            async let byTitle: Void = run(isbn: nil)
+            _ = await (byISBN, byTitle)
+        } else {
+            await run(isbn: nil)
+        }
+        var (gathered, notes) = await box.snapshot()
+        if isbn != nil, !gathered.contains(where: { $0.matchedByISBN }) { notes.append(.isbnMissed) }
+        gathered = dedupe(gathered)
         return (rank(gathered, title: title, author: author), notes)
+    }
+
+    /// The same edition can come back from both passes: keep the ISBN-matched copy.
+    static func dedupe(_ records: [MetadataCandidate]) -> [MetadataCandidate] {
+        var seen: [String: Int] = [:]
+        var out: [MetadataCandidate] = []
+        for r in records {
+            let key = [r.title.lowercased(), r.publisher.lowercased(), String(r.date.suffix(4))].joined(separator: "|")
+            if let at = seen[key] {
+                if r.matchedByISBN && !out[at].matchedByISBN { out[at] = r }
+            } else { seen[key] = out.count; out.append(r) }
+        }
+        return out
     }
 
     static func searchISBN(_ source: MetadataSource, isbn: String, googleKey: String?) async throws -> [MetadataCandidate] {
@@ -101,9 +134,9 @@ enum MetadataLookup {
             c.authors = (v["authors"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
             c.publisher = ((v["publishers"] as? [[String: Any]])?.first?["name"] as? String) ?? ""
             c.date = v["publish_date"] as? String ?? ""
-            c.subjects = Array(((v["subjects"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []).filter { $0.count < 40 }.prefix(5))
+            c.subjects = Array(((v["subjects"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []).filter { $0.count < 40 }.prefix(3))
             c.isbn = isbn
-            if let cover = v["cover"] as? [String: Any], let url = (cover["large"] ?? cover["medium"]) as? String { c.coverURL = URL(string: url) }
+            if let cover = v["cover"] as? [String: Any], let url = (cover["large"] ?? cover["medium"]) as? String { c.coverURL = URL(string: url + (url.contains("?") ? "" : "?default=false")) }
             c.pageURL = (v["url"] as? String).flatMap(URL.init(string:))
             return c
         }
@@ -212,9 +245,12 @@ enum MetadataLookup {
             c.authors = doc["author_name"] as? [String] ?? []
             c.publisher = (doc["publisher"] as? [String])?.first ?? ""
             if let year = doc["first_publish_year"] as? Int { c.date = String(year) }
-            c.subjects = Array(((doc["subject"] as? [String]) ?? []).filter { $0.count < 40 }.prefix(5))
-            c.isbn = ((doc["isbn"] as? [String]) ?? []).first { $0.count == 13 } ?? (doc["isbn"] as? [String])?.first ?? ""
-            if let cover = doc["cover_i"] as? Int { c.coverURL = URL(string: "https://covers.openlibrary.org/b/id/\(cover)-L.jpg") }
+            c.subjects = Array(((doc["subject"] as? [String]) ?? []).filter { $0.count < 40 }.prefix(3))
+            let isbns = ((doc["isbn"] as? [String]) ?? [])
+            let thirteen = isbns.filter { $0.count == 13 }
+            c.isbn = thirteen.first ?? isbns.first ?? ""
+            c.altISBNs = Array(thirteen.dropFirst().prefix(2))
+            if let cover = doc["cover_i"] as? Int { c.coverURL = URL(string: "https://covers.openlibrary.org/b/id/\(cover)-L.jpg?default=false") }
             if let key = doc["key"] as? String { c.pageURL = URL(string: "https://openlibrary.org\(key)") }
             return c
         }
@@ -266,25 +302,61 @@ enum MetadataLookup {
     // MARK: Network
 
     private static func fetch(_ url: URL) async throws -> Data {
-        var request = URLRequest(url: url, timeoutInterval: 20)
-        request.setValue("BookTranslator/1.0", forHTTPHeaderField: "User-Agent")
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode >= 500 { throw LookupError.network("HTTP \(http.statusCode)") }
-            return data
-        } catch let error as LookupError { throw error }
-        catch { throw LookupError.network(error.localizedDescription) }
+        var lastError = LookupError.network("no answer")
+        for attempt in 0..<2 {
+            var request = URLRequest(url: url, timeoutInterval: 45)    // the public catalogues can take 10 s or more
+            request.setValue("BookTranslator/1.0", forHTTPHeaderField: "User-Agent")
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode >= 500 { throw LookupError.network("HTTP \(http.statusCode)") }
+                return data
+            } catch let error as LookupError { lastError = error }
+            catch let error as URLError where error.code == .timedOut { throw LookupError.network(error.localizedDescription) }
+            catch { lastError = .network(error.localizedDescription) }
+            if attempt == 0 { try? await Task.sleep(nanoseconds: 800_000_000) }
+        }
+        throw lastError
     }
 
-    /// Download a cover to a temp file the engine can read; nil when it is not an image.
-    static func downloadCover(_ url: URL) async -> URL? {
-        guard let (data, response) = try? await URLSession.shared.data(from: url), data.count > 2_000,
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+    /// Download a cover to a temp file the engine can read; nil when none of the sources has one.
+    static func downloadCover(for candidate: MetadataCandidate) async -> URL? {
+        guard let data = await CoverFetcher.fetch(CoverFetcher.sources(for: candidate)) else { return nil }
         let isPNG = data.prefix(4) == Data([0x89, 0x50, 0x4E, 0x47])
-        let isJPG = data.prefix(2) == Data([0xFF, 0xD8])
-        guard isPNG || isJPG else { return nil }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("bt-cover-\(UUID().uuidString).\(isPNG ? "png" : "jpg")")
         return (try? data.write(to: file)) == nil ? nil : file
+    }
+}
+
+/// Finds a cover for a catalogue record. Open Library's cover-by-id links go through archive.org and
+/// often time out, so covers are looked up by ISBN first (fast on Open Library and on Google's keyless
+/// cover endpoint); the by-id link is the last resort.
+enum CoverFetcher {
+    static func sources(for c: MetadataCandidate) -> [URL] {
+        var urls: [URL] = []
+        for isbn in ([c.isbn] + c.altISBNs).filter({ !$0.isEmpty }).prefix(3) {
+            urls.append(URL(string: "https://covers.openlibrary.org/b/isbn/\(isbn)-M.jpg?default=false")!)
+            urls.append(URL(string: "https://books.google.com/books/content?vid=ISBN:\(isbn)&printsec=frontcover&img=1&zoom=1")!)
+        }
+        if let url = c.coverURL, !urls.contains(url) { urls.append(url) }
+        return urls
+    }
+
+    /// Image bytes (JPEG, PNG or GIF, not a placeholder) from the first source that answers in time.
+    static func fetch(_ urls: [URL], timeout: TimeInterval = 7) async -> Data? {
+        for url in urls.prefix(5) {
+            var request = URLRequest(url: url, timeoutInterval: timeout)
+            request.setValue("BookTranslator/1.0", forHTTPHeaderField: "User-Agent")
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200, isRealImage(data) else { continue }
+            return data
+        }
+        return nil
+    }
+
+    /// A known image format and big enough not to be a "no cover" placeholder.
+    static func isRealImage(_ data: Data) -> Bool {
+        guard data.count > 2_000 else { return false }
+        return data.prefix(2) == Data([0xFF, 0xD8]) || data.prefix(4) == Data([0x89, 0x50, 0x4E, 0x47]) || data.prefix(3) == Data([0x47, 0x49, 0x46])
     }
 }
 

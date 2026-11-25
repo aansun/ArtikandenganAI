@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
     @Environment(Updater.self) private var updater
+    @Environment(AppearanceStore.self) private var appearance
     @State private var apiKey = ""
     @State private var keyStored = !Secrets.googleBooksKey.isEmpty
 
@@ -16,22 +17,15 @@ struct SettingsView: View {
                 if !model.env.isValid { warning }
 
                 group {
+                    row(loc.t("settings.appearance"), loc.t("settings.appearanceHint")) {
+                        IconSegmented(items: AppearanceMode.allCases.map { ($0, $0.symbol, loc.t("appearance.\($0.rawValue)")) },
+                                      selection: Binding(get: { appearance.mode }, set: { appearance.mode = $0 }), showLabels: true)
+                    }
+                    divider
                     row(loc.t("settings.language"), loc.t("settings.languageHint2")) {
                         Segmented(items: AppLanguage.allCases.map { ($0, $0 == .id ? "Indonesia" : "English") },
                                   selection: Binding(get: { loc.language }, set: { loc.language = $0 }), fontSize: 13, hPad: 14)
                     }
-                }
-
-                group {
-                    row(Text(loc.t("app.title")).font(.system(size: 14, weight: .medium))
-                        + Text(" " + loc.t("settings.versionNow", Updater.currentVersion, Updater.currentBuild)).font(.system(size: 14)).foregroundColor(Theme.muted),
-                        updater.lastChecked.map { loc.t("settings.lastChecked", $0.formatted(date: .abbreviated, time: .shortened)) } ?? loc.t("settings.never")) {
-                        Button(updater.state == .checking ? loc.t("settings.checking") : loc.t("settings.check")) { Task { await updater.check() } }
-                            .buttonStyle(GhostButtonStyle()).disabled(updater.state == .checking || updater.state == .downloading)
-                    }
-                    divider
-                    row(loc.t("settings.auto"), loc.t("settings.autoHint")) { Toggle("", isOn: $updater.autoUpdate).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
-                    updateBanner
                 }
 
                 group { enginesBlock }
@@ -42,10 +36,11 @@ struct SettingsView: View {
                                   selection: $model.quality, fontSize: 13, hPad: 12)
                     }
                     divider
-                    row(loc.t("settings.target"), loc.t("settings.targetHint")) {
-                        Text(loc.t("langname.Indonesian")).font(.system(size: 13))
-                            .padding(.horizontal, 12).padding(.vertical, 5).background(Color.white, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.buttonLine))
+                    row(loc.t("settings.target"), model.targetLanguage == "Indonesian" ? loc.t("settings.targetHint") : loc.t("settings.targetHintOther")) {
+                        Picker("", selection: $model.targetLanguage) {
+                            ForEach(TargetLanguages.all, id: \.self) { Text(loc.t("langname.\($0)")).tag($0) }
+                        }
+                        .labelsHidden().frame(width: 190)
                     }
                 }
 
@@ -90,10 +85,22 @@ struct SettingsView: View {
                     divider
                     row(loc.t("settings.notifyAttention"), loc.t("settings.notifyAttentionHint")) { Toggle("", isOn: $model.notifyAttention).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
                 }
+
+                group {
+                    row(Text(loc.t("app.title")).font(.system(size: 14, weight: .medium))
+                        + Text(" " + loc.t("settings.versionNow", Updater.currentVersion, Updater.currentBuild)).font(.system(size: 14)).foregroundColor(Theme.muted),
+                        updater.lastChecked.map { loc.t("settings.lastChecked", $0.formatted(date: .abbreviated, time: .shortened)) } ?? loc.t("settings.never")) {
+                        Button(updater.state == .checking ? loc.t("settings.checking") : loc.t("settings.check")) { Task { await updater.check() } }
+                            .buttonStyle(GhostButtonStyle()).disabled(updater.state == .checking || updater.state == .downloading)
+                    }
+                    divider
+                    row(loc.t("settings.auto"), loc.t("settings.autoHint")) { Toggle("", isOn: $updater.autoUpdate).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+                    updateBanner
+                }
             }
             .padding(.horizontal, 24).padding(.vertical, 20)
         }
-        .frame(width: 700, height: 760)
+        .frame(width: 700, height: 820)
         .background(Theme.window)
     }
 
@@ -154,7 +161,7 @@ struct SettingsView: View {
     // MARK: - Engines
 
     private static let badge: [String: (String, Color)] = [
-        "claude": ("C", Color(hex: 0xD97757)), "codex": ("X", Color(hex: 0x1D1D1F)), "agy": ("A", Color(hex: 0x2F7BF0)),
+        "claude": ("C", Color(hex: 0xD97757)), "codex": ("X", Theme.codexBadge), "agy": ("A", Color(hex: 0x2F7BF0)),
     ]
 
     private var enginesBlock: some View {
@@ -177,7 +184,7 @@ struct SettingsView: View {
                 Spacer()
                 Button(loc.t("settings.recheck")) { model.refreshEngines(force: true) }.buttonStyle(GhostButtonStyle()).disabled(model.enginesLoading)
             }
-            .padding(.horizontal, 16).padding(.vertical, 10).background(Color(hex: 0xFAFAFB))
+            .padding(.horizontal, 16).padding(.vertical, 10).background(Theme.sidePanel)
         }
     }
 

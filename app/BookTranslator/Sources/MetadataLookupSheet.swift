@@ -7,18 +7,29 @@ struct MetadataLookupSheet: View {
     @Environment(\.dismiss) private var dismiss
     var book: LibraryBook
     var current: EpubMetadata
-    var onDone: () -> Void
+    var onDone: (_ applied: [String]) -> Void
     var preview: [MetadataCandidate] = []   // test hook: show these results without searching
 
+    init(book: LibraryBook, current: EpubMetadata, onDone: @escaping (_ applied: [String]) -> Void, preview: [MetadataCandidate] = []) {
+        self.book = book
+        self.current = current
+        self.onDone = onDone
+        self.preview = preview
+        _title = State(initialValue: book.title)
+        _author = State(initialValue: book.authorName.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "")
+        _results = State(initialValue: preview)
+    }
+
     @State private var notes: [LookupError] = []
-    @State private var title = ""
-    @State private var author = ""
-    @State private var results: [MetadataCandidate] = []
+    @State private var title: String
+    @State private var author: String
+    @State private var results: [MetadataCandidate]
     @State private var selected: MetadataCandidate.ID?
     @State private var chosen: Set<String> = []
     @State private var searching = false
     @State private var message = ""
     @State private var applying = false
+    @State private var applyErrors: [String] = []
 
     private var candidate: MetadataCandidate? { results.first { $0.id == selected } }
 
@@ -26,17 +37,15 @@ struct MetadataLookupSheet: View {
         VStack(spacing: 0) {
             header
             HStack(spacing: 0) {
-                resultsColumn.frame(width: 380)
-                Rectangle().fill(Color(hex: 0xE5E5EA)).frame(width: 1)
+                resultsColumn.frame(width: 340)
+                Rectangle().fill(Theme.divider).frame(width: 1)
                 fieldsColumn.frame(maxWidth: .infinity)
             }
             footer
         }
-        .frame(width: 900, height: 600).background(Color.white)
-        .onAppear {
-            title = book.title
-            author = book.authorName.components(separatedBy: ",").first ?? ""
-            if !preview.isEmpty { results = preview; select(preview[0]) } else { Task { await search() } }
+        .frame(width: 860, height: 580).background(Theme.card)
+        .task {
+            if preview.isEmpty { await search() } else if let first = preview.first { select(first) }
         }
     }
 
@@ -64,7 +73,7 @@ struct MetadataLookupSheet: View {
             }
         }
         .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 12)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xE5E5EA)).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.divider).frame(height: 1) }
     }
 
     // MARK: - Results
@@ -78,6 +87,10 @@ struct MetadataLookupSheet: View {
                 } else if results.isEmpty && !searching {
                     Text(loc.t("lookup.empty")).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(20)
                 }
+                if !results.isEmpty, notes.contains(.isbnMissed) {
+                    Text(loc.t("lookup.isbnMissed")).font(.system(size: 11)).foregroundStyle(Theme.warnText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if !results.isEmpty, notes.contains(.needsKey) {
                     Text(loc.t("lookup.keyNote")).font(.system(size: 11)).foregroundStyle(Theme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -86,10 +99,7 @@ struct MetadataLookupSheet: View {
                     let on = item.id == selected
                     Button { select(item) } label: {
                         HStack(alignment: .top, spacing: 10) {
-                            AsyncImage(url: item.coverURL) { image in image.resizable().scaledToFill() } placeholder: {
-                                Rectangle().fill(Covers.gradient(for: item.title))
-                            }
-                            .frame(width: 34, height: 48).clipShape(RoundedRectangle(cornerRadius: 3))
+                            RemoteImage(urls: CoverFetcher.sources(for: item), title: item.title, width: 44, height: 64, radius: 3)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).font(.system(size: 13, weight: .semibold)).lineLimit(2).multilineTextAlignment(.leading)
                                 Text(item.authors.joined(separator: ", ")).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
@@ -100,8 +110,8 @@ struct MetadataLookupSheet: View {
                             Spacer(minLength: 0)
                         }
                         .padding(9).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(on ? Color(hex: 0xF4F8FE) : .white, in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.accent : Color(hex: 0xE1E1E6), lineWidth: on ? 1.5 : 1))
+                        .background(on ? Theme.selectedFill : Theme.card, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.accent : Theme.unselectedBorder, lineWidth: on ? 1.5 : 1))
                     }.buttonStyle(.plain)
                 }
             }
@@ -140,7 +150,7 @@ struct MetadataLookupSheet: View {
         add("date", "meta.date", old: current.displayDate, new: c.date)
         add("subject", "meta.subject", old: current.subjects.joined(separator: ", "), new: c.subjects.joined(separator: ", "))
         add("isbn", "meta.isbn", old: "", new: c.isbn)
-        if c.coverURL != nil { add("cover", "meta.cover", old: current.hasCover ? loc.t("meta.attached") : loc.t("meta.missing"), new: loc.t("lookup.coverFound")) }
+        if !CoverFetcher.sources(for: c).isEmpty { add("cover", "meta.cover", old: current.hasCover ? loc.t("meta.attached") : loc.t("meta.missing"), new: loc.t("lookup.coverFound")) }
         add("description", "meta.description", old: current.plainDescription, new: c.description, note: loc.t("lookup.descriptionNote"))
         return list
     }
@@ -151,6 +161,25 @@ struct MetadataLookupSheet: View {
                 if candidate == nil {
                     Text(loc.t("lookup.pick")).font(.system(size: 13)).foregroundStyle(Theme.muted).padding(.top, 30).frame(maxWidth: .infinity)
                 } else {
+                    HStack(alignment: .top, spacing: 18) {
+                        coverBox(title: loc.t("lookup.yourCover")) {
+                            CoverView(title: book.title, image: model.library.covers[book.folder], width: 96, height: 138, radius: 5)
+                        }
+                        coverBox(title: loc.t("lookup.foundCover")) {
+                            RemoteImage(urls: candidate.map { CoverFetcher.sources(for: $0) } ?? [], title: candidate?.title ?? "", width: 96, height: 138, radius: 5)
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            if let c = candidate {
+                                Text(c.title).font(.system(size: 14, weight: .semibold)).lineLimit(3)
+                                Text(c.authors.joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                Text([c.publisher, c.date].filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                if !c.isbn.isEmpty { Text("ISBN \(c.isbn)").font(.system(size: 11)).foregroundStyle(Theme.faint) }
+                                badge(c).padding(.top, 2)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.bottom, 8)
                     Text(loc.t("lookup.fields")).font(.system(size: 13, weight: .semibold))
                     Text(loc.t("lookup.titleKept")).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.bottom, 6)
                     ForEach(rows) { row in
@@ -179,6 +208,9 @@ struct MetadataLookupSheet: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
+            if !applyErrors.isEmpty {
+                Text(loc.t("lookup.applyFailed", applyErrors.joined(separator: " · "))).font(.system(size: 11)).foregroundStyle(.red).lineLimit(3)
+            }
             if let page = candidate?.pageURL {
                 Button(loc.t("lookup.openPage")) { NSWorkspace.shared.open(page) }.buttonStyle(.link).font(.system(size: 12))
             }
@@ -189,7 +221,14 @@ struct MetadataLookupSheet: View {
                 .opacity(chosen.isEmpty ? 0.4 : 1)
         }
         .padding(.horizontal, 24).padding(.vertical, 12)
-        .overlay(alignment: .top) { Rectangle().fill(Color(hex: 0xE5E5EA)).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
+    }
+
+    private func coverBox<Content: View>(title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 5) {
+            content()
+            Text(title).font(.system(size: 11)).foregroundStyle(Theme.muted)
+        }
     }
 
     // MARK: - Actions
@@ -221,7 +260,9 @@ struct MetadataLookupSheet: View {
     private func apply() async {
         guard let c = candidate else { return }
         applying = true
+        applyErrors = []
         defer { applying = false }
+        var applied: [String] = []
         for row in rows where chosen.contains(row.id) {
             var value = row.new
             switch row.id {
@@ -229,13 +270,20 @@ struct MetadataLookupSheet: View {
             case "subject": value = c.subjects.joined(separator: "|")
             case "date": value = MetadataLookup.isoDate(c.date)
             case "cover":
-                guard let url = c.coverURL, let file = await MetadataLookup.downloadCover(url) else { continue }
+                guard let file = await MetadataLookup.downloadCover(for: c) else {
+                    applyErrors.append("\(row.label): \(loc.t("lookup.coverMissing"))")
+                    continue
+                }
                 value = file.path
             default: break
             }
-            _ = await model.editMetadata(folder: book.folder, field: row.id, value: value)
+            if let error = await model.editMetadata(folder: book.folder, field: row.id, value: value) {
+                applyErrors.append("\(row.label): \(String(error.suffix(160)))")
+            } else {
+                applied.append(row.label)
+            }
         }
-        onDone()
-        dismiss()
+        onDone(applied)
+        if applyErrors.isEmpty { dismiss() }   // stay open when something failed, so the reason can be read
     }
 }

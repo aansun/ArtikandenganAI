@@ -58,10 +58,13 @@ struct InputView: View {
             Image(systemName: "arrow.up.to.line").font(.system(size: 18, weight: .regular)).foregroundStyle(Theme.accent)
             (Text(loc.t("input.dropBold")).font(.system(size: 13, weight: .bold))
              + Text(loc.t("input.dropRest")).font(.system(size: 13)).foregroundColor(Theme.muted))
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
             Button(loc.t("input.choose")) { choose() }.buttonStyle(GhostButtonStyle())
         }
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity).frame(height: 66)
-        .background(Color(hex: 0xF9FBFE), in: RoundedRectangle(cornerRadius: 12))
+        .background(Theme.dropFill, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.dashed, style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
     }
 
@@ -138,7 +141,7 @@ struct GripDots: View {
     var body: some View {
         Canvas { context, _ in
             for x in [3.0, 9.0] { for y in [3.0, 8.0, 13.0] {
-                context.fill(Path(ellipseIn: CGRect(x: x - 1.4, y: y - 1.4, width: 2.8, height: 2.8)), with: .color(Color(hex: 0xB0B0B8)))
+                context.fill(Path(ellipseIn: CGRect(x: x - 1.4, y: y - 1.4, width: 2.8, height: 2.8)), with: .color(Theme.grip))
             } }
         }.frame(width: 12, height: 16)
     }
@@ -154,7 +157,7 @@ private struct UploadedRow: View {
             GripDots()
             CoverView(title: book.title, width: 34, height: 48, radius: 3)
             VStack(alignment: .leading, spacing: 1) {
-                Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
                 if book.stage == .reading {
                     HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(loc.t("input.reading")) }
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
@@ -180,8 +183,8 @@ private struct UploadedRow: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color(hex: 0xECECF0)))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.rowBorder))
         .draggable(book.id.uuidString)
         .contextMenu { Button(loc.t("input.remove"), role: .destructive) { model.remove(book.id) } }
     }
@@ -199,7 +202,7 @@ private struct ReadyRow: View {
                 .frame(width: 24, height: 24).background(Theme.accent, in: Circle())
             CoverView(title: book.title, width: 34, height: 48, radius: 3)
             VStack(alignment: .leading, spacing: 1) {
-                Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
                 Text("\(loc.t(book.kind.key)) · \(loc.volumes(book.volumes)) · \(loc.t("input.about", loc.minutes(book.estimatedMinutes)))")
                     .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
             }
@@ -209,8 +212,8 @@ private struct ReadyRow: View {
             IconButton(symbol: "xmark", help: loc.t("input.toUploaded")) { model.unready(book.id) }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color(hex: 0xD5E3F8)))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.readyRowBorder))
         .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
         .draggable(book.id.uuidString)
         .dropDestination(for: String.self) { ids, _ in

@@ -67,5 +67,44 @@ final class LiveLookupTests: XCTestCase {
         let byTitle = await MetadataLookup.identify(isbn: nil, title: "A Study in Scarlet", author: "Arthur Conan Doyle", googleKey: nil)
         print("BYTITLE", byTitle.records.prefix(3).map { "\($0.title)|\($0.publisher)|\($0.date)|\(String(format: "%.2f", $0.score))" })
         XCTAssertFalse(byTitle.records.isEmpty)
+        let top = try XCTUnwrap(byISBN.records.first)
+        let started = Date()
+        let data = await CoverFetcher.fetch(CoverFetcher.sources(for: top))
+        print("COVER", data?.count ?? 0, "bytes in", String(format: "%.1f", Date().timeIntervalSince(started)), "s")
+        XCTAssertNotNil(data.flatMap { NSImage(data: $0) })
+    }
+}
+
+/// Applies metadata through the app's own edit path against the real engine. Runs only with
+/// BT_EDIT_EPUB=<a translated epub> BT_ROOT=<engine folder> BT_COVER=<image>.
+@MainActor
+final class EditMetadataTests: XCTestCase {
+    func testEditsReachTheEpub() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let epub = env["BT_EDIT_EPUB"], let root = env["BT_ROOT"], let cover = env["BT_COVER"] else { throw XCTSkip("not set") }
+        let books = FileManager.default.temporaryDirectory.appendingPathComponent("bt-edit-\(UUID().uuidString)/books")
+        let folder = books.appendingPathComponent("holmes")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let copy = folder.appendingPathComponent("b.epub")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: epub), to: copy)
+        let book = #"{"title":"A Study in Scarlet","is_fiction":true,"volumes":[{"index":1,"label":"x","output":"\#(copy.path)","status":"completed","metadata_missing":[],"qa_flags":0}]}"#
+        try book.write(to: folder.appendingPathComponent("book.json"), atomically: true, encoding: .utf8)
+
+        let model = AppModel(env: BackendEnvironment(root: URL(fileURLWithPath: root), booksDir: books))
+        let before = try XCTUnwrap(EpubReader.read(copy))
+        XCTAssertNotEqual(before.publisher, "Test Publisher")
+
+        for (field, value) in [("publisher", "Test Publisher"), ("isbn", "9780141439952"), ("subject", "Detective|Mystery"), ("cover", cover)] {
+            let error = await model.editMetadata(folder: "holmes", field: field, value: value)
+            XCTAssertNil(error, "\(field): \(error ?? "")")
+        }
+        let after = try XCTUnwrap(EpubReader.read(copy))
+        XCTAssertEqual(after.publisher, "Test Publisher")
+        XCTAssertTrue(after.identifiers.contains { ISBN.normalised($0) == "9780141439952" })
+        XCTAssertEqual(after.subjects, ["Detective", "Mystery"])
+        XCTAssertTrue(after.coverHref?.contains("cover-online") ?? false)
+        print("EDITED", after.publisher, after.identifiers, after.subjects, after.coverHref ?? "-")
+        let bad = await model.editMetadata(folder: "holmes", field: "nonsense", value: "x")
+        XCTAssertNotNil(bad)          // a failure is reported, not swallowed
     }
 }

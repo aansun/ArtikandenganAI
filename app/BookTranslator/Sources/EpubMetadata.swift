@@ -22,7 +22,13 @@ struct EpubMetadata: Equatable {
     var hasCover: Bool { coverHref != nil }
 
     /// The first identifier that is a valid ISBN-13 or ISBN-10 ("urn:isbn:978-…" forms included).
-    var isbn: String? { identifiers.lazy.compactMap { ISBN.normalised($0) }.first }
+    var isbn: String? { isbns.first }
+
+    /// Every valid ISBN among the identifiers, without repeats (a book can carry several editions' ISBNs).
+    var isbns: [String] {
+        var seen = Set<String>()
+        return identifiers.compactMap { ISBN.normalised($0) }.filter { seen.insert($0).inserted }
+    }
 
     /// The description as plain text: some e-books store it as HTML.
     var plainDescription: String {

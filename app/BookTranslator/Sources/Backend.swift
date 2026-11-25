@@ -121,8 +121,8 @@ enum BackendClient {
         return try JSONDecoder().decode([EngineInfo].self, from: lastJSON(data))
     }
 
-    static func inspect(_ env: BackendEnvironment, file: URL) async throws -> InspectResult {
-        let data = try await run(env, ["--inspect", file.path])
+    static func inspect(_ env: BackendEnvironment, file: URL, target: String = "Indonesian") async throws -> InspectResult {
+        let data = try await run(env, ["--inspect", file.path, "-tl", target])
         return try JSONDecoder.snake.decode(InspectResult.self, from: lastJSON(data))
     }
 

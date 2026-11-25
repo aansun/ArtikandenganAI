@@ -91,7 +91,7 @@ struct ProcessView: View {
     private func dotColor(_ i: Int, book: QueueBook, tint: Color) -> Color {
         if i < book.volume { return Theme.green }
         if i == book.volume { return tint }
-        return Color(hex: 0xD8D8DE)
+        return Theme.dotIdle
     }
 
     @ViewBuilder private var engineLine: some View {
@@ -139,7 +139,7 @@ struct ProgressBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color(hex: 0xE8E8ED))
+                Capsule().fill(Theme.trackBar)
                 Capsule().fill(tint).frame(width: geo.size.width * max(0, min(1, value)))
             }
         }.frame(height: 6)
@@ -157,7 +157,7 @@ private struct QueueRow: View {
         let failed = book.stage == .failed
         HStack(spacing: 14) {
             Text("\(position)").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.neutralText)
-                .frame(width: 22, height: 22).background(Color(hex: 0xE4E4E9), in: Circle())
+                .frame(width: 22, height: 22).background(Theme.numCircle, in: Circle())
             CoverView(title: book.title, width: 38, height: 54, radius: 4)
             VStack(alignment: .leading, spacing: 1) {
                 Text(book.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
@@ -171,7 +171,7 @@ private struct QueueRow: View {
             if failed { Pill(text: loc.t("process.failed"), bg: Color.red.opacity(0.12), fg: .red, size: 12) }
             else if review { Pill(text: loc.t("process.reviewChip"), bg: Theme.warnBg, fg: Theme.warnText, size: 12) }
             else if book.stage == .preparing { Pill(text: loc.t("process.preparingChip"), bg: Theme.warnBg, fg: Theme.warnText, size: 12) }
-            else { Pill(text: loc.t("process.waitTurn"), bg: Theme.neutralBg, fg: Color(hex: 0x4A4A50), size: 12) }
+            else { Pill(text: loc.t("process.waitTurn"), bg: Theme.neutralBg, fg: Theme.queueText, size: 12) }
             if review {
                 Button(loc.t("process.review")) { model.reviewTarget = book.id }.buttonStyle(PrimaryButtonStyle(radius: 8))
             }

@@ -5,18 +5,19 @@ struct BookTranslatorApp: App {
     @State private var model = AppModel()
     @State private var updater = Updater()
     @State private var loc = Loc.shared
+    @State private var appearance = AppearanceStore.shared
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(model).environment(updater).environment(loc)
+                .environment(model).environment(updater).environment(loc).environment(appearance)
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1180, height: 760)
 
         Settings {
             SettingsView()
-                .environment(model).environment(updater).environment(loc)
+                .environment(model).environment(updater).environment(loc).environment(appearance)
         }
 
         MenuBarExtra {
