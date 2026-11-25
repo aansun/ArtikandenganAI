@@ -352,13 +352,13 @@ final class EngineSetupTests: XCTestCase {
 
 
 final class AboutTests: XCTestCase {
-    func testAboutLinksToTheRepository() {
-        let credits = AboutPanel.credits(Loc.shared)
-        var found: URL?
-        credits.enumerateAttribute(.link, in: NSRange(location: 0, length: credits.length)) { value, _, _ in
-            if let url = value as? URL { found = url }
+    func testAboutLinksAndEveryTextExists() {
+        XCTAssertEqual(AboutPanel.repositoryURL.absoluteString, "https://github.com/aansun/ArtikandenganAI")
+        XCTAssertEqual(AboutPanel.mainProjectURL.absoluteString, "https://github.com/hydropix/TranslateBooksWithLLMs")
+        for key in AboutContent.hood + AboutContent.limits + ["about.buy.title", "about.buy.body", "about.main", "about.license"] {
+            XCTAssertNotNil(Loc.table[key], key)
         }
-        XCTAssertEqual(found?.absoluteString, "https://github.com/aansun/ArtikandenganAI")
-        XCTAssertEqual(AboutPanel.repositoryURL.host, "github.com")
+        XCTAssertEqual(AboutContent.hood.count, 5)
+        XCTAssertEqual(AboutContent.limits.count, 7)
     }
 }

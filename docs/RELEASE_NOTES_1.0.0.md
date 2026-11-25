@@ -26,27 +26,7 @@ asks to install its Python libraries once (needs the internet and Python 3.10 or
 least one of the `claude`, `codex` or `agy` tools signed in. `NNAI-Translator-1.0.0.zip` holds the same app
 and is what the in-app updater downloads.
 
-## Under the hood
-
-- The translation engine is built into the app; only its Python libraries are installed on first launch,
-  into `~/Library/Application Support/NNAI Translator`.
-- New engine commands: `--detect` (which engines work), `--inspect` (what a book is), `--set-metadata`
-  (change one field of a finished book), `--style`, `--redo`, `--refresh-metadata`.
-- Boilerplate pages (licence headers, donation appeals, download-site credits) are removed instead of being
-  translated, name variants the model invents are repaired, and every translated page is audited against
-  its source.
-- Opus models are never used; Claude runs at Sonnet at most.
-
-## Known limits
-
-- Signed ad hoc, not notarised: on another Mac, right-click the app and choose Open once.
-- Python 3.10 or newer must be installed; the app does not bundle a Python.
-- Indonesian is the best-tuned target language; the other 17 work but have had less testing.
-- Google Books lookup needs your own free API key (Settings). Amazon has no public catalogue API, so its
-  button only opens the Amazon search page.
-- Antigravity uses its quota quickly; it is skipped while its quota is exhausted.
-- Multi-volume splitting was tested on a synthetic EPUB, not yet on a real ten-volume novel.
-- The in-app updater is tested for version logic and release parsing, not yet against a real release.
+How it works and what it cannot do yet are listed in the app itself, in **NNAI Translator, About NNAI Translator**.
 
 ## Please buy the books
 
