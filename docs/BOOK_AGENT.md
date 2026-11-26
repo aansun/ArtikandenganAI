@@ -59,7 +59,8 @@ One run does, for each book:
    donation appeal, download-site credits) are removed from the working copy, so they are neither
    translated nor paid for; the original upload is never touched. A page is left out only when it
    holds nothing else: where the Gutenberg start or end line shares a page with chapters, just what
-   lies outside those lines is cut. A multi-volume file is then cut
+   lies outside those lines is cut. Footnotes the text links to are kept even under a
+   "Transcriber's Notes" heading. A multi-volume file is then cut
    into one file per volume (EPUB via the table of contents or headings, TXT via lines such as
    `Volume 3`); a folder of volume files is used as is; with no markers the book is one volume.
 3. **Classify** the book (genre, source language, title) with one cheap call. If it fails, a local

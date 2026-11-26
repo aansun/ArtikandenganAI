@@ -16,11 +16,14 @@ missing chapter spoils the book.
 from __future__ import annotations
 
 import logging
+import posixpath
 import re
 import shutil
 import zipfile
+from collections import Counter
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib.parse import unquote
 
 from lxml import etree
 
@@ -37,6 +40,7 @@ _LICENCE_PER_THOUSAND = 2
 _NOTE_PAGE_WORDS = 800
 
 CUT_REASON = "licence lines cut, the text between them kept"
+NOTE_REASON = "transcriber's note"
 
 _START_LINE = re.compile(r"\*{3}\s*start of (?:this|the) project gutenberg", re.I)
 _END_LINE = re.compile(r"\*{3}\s*end of (?:this|the) project gutenberg", re.I)
@@ -71,7 +75,7 @@ def boilerplate_reason(text: str) -> str:
             and licence * 1000 >= _LICENCE_PER_THOUSAND * words):
         return "licence text"
     if _TRANSCRIBER_NOTE.search(text[:150]) and words < _NOTE_PAGE_WORDS:  # a running title may come first
-        return "transcriber's note"
+        return NOTE_REASON
     if words < _SHORT_PAGE_WORDS and _SITE_CREDIT.search(text):
         return "download-site page"
     return ""
@@ -158,12 +162,38 @@ def judge_page(raw: bytes) -> Tuple[str, Optional[bytes]]:
     return (reason, None) if words < _STORY_WORDS else (CUT_REASON, page)
 
 
+_FOOTNOTE_LINKS = 3
+_LINK = re.compile(rb"""<a\b[^>]*?\bhref\s*=\s*["']([^"'#]+)#""", re.I)
+
+
+def _linked_pages(z: zipfile.ZipFile, paths: List[str]) -> set:
+    """The pages the text points into again and again: footnote marks leading to their notes.
+
+    One stray link is not enough: a single "return" arrow also leads into a note about the e-book.
+    """
+    found: Counter = Counter()
+    for path in paths:
+        for href in _LINK.findall(z.read(path)):
+            target = posixpath.normpath(posixpath.join(
+                posixpath.dirname(path), unquote(href.decode("utf-8", "ignore"))))
+            if target != path:
+                found[target] += 1
+    return {page for page, links in found.items() if links >= _FOOTNOTE_LINKS}
+
+
 def _judge_epub(epub_path: Path) -> List[Tuple[str, str, Optional[bytes]]]:
     epub = _Epub(epub_path)
     found = []
     with zipfile.ZipFile(epub_path) as z:
-        for _idref, path in epub.spine:
+        paths = [path for _idref, path in epub.spine]
+        # a table of contents points at every page: its links say nothing about footnotes
+        toc = set(epub.toc_files.values())
+        linked = _linked_pages(z, [p for p in paths if p not in toc])
+        for path in paths:
             reason, page = judge_page(z.read(path))
+            # notes the text refers to are part of the book, whatever their heading says
+            if reason == NOTE_REASON and page is None and path in linked:
+                continue
             if reason:
                 found.append((path, reason, page))
     return found

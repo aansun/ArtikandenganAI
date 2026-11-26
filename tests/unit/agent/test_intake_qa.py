@@ -7,8 +7,8 @@ from lxml import etree
 
 import translate_book
 from src.core.agent import qa
-from src.core.agent.intake import (CUT_REASON, boilerplate_reason, clean_text, clean_volume,
-                                   judge_page)
+from src.core.agent.intake import (CUT_REASON, boilerplate_documents, boilerplate_reason, clean_text,
+                                   clean_volume, judge_page)
 from tests.unit.agent.epub_fixture import build_omnibus
 from tests.unit.agent.test_pipeline_e2e import book_dir, calls, env, is_translation, upload  # noqa: F401
 
@@ -252,3 +252,22 @@ def test_a_book_in_big_pages_keeps_every_chapter(tmp_path):
         for chapter in ("v1c1.xhtml", "v1c2.xhtml"):
             text = z.read(f"OEBPS/{chapter}").decode()
             assert text.count("Mr. Jasper walked") == 40 and "GUTENBERG" not in text.upper()
+
+
+def test_footnotes_the_text_points_to_are_kept_under_a_transcriber_heading(tmp_path):
+    """A published book lost the notes its chapters link to, headed "Transcriber's Notes"."""
+    book = build_omnibus(tmp_path / "saga.epub", 1, 2)
+    noted = tmp_path / "noted.epub"
+    notes = _page("<h3>Original Transcriber's Notes:</h3><p id='n1'>1: the period should be a comma.</p>")
+    with zipfile.ZipFile(book) as a, zipfile.ZipFile(noted, "w") as b:
+        for info in a.infolist():
+            data = a.read(info.filename)
+            if info.filename.endswith("v1c1.xhtml"):
+                data = _page(STORY + '<p><a href="v1c2.xhtml#n1">1</a></p>' * 3)
+            if info.filename.endswith("v1c2.xhtml"):
+                data = notes
+            b.writestr(info, data)
+    assert boilerplate_documents(noted) == []
+    assert clean_volume(noted, tmp_path / "volumes") == (noted, [])
+    # the same page that nothing points into is still a note about the e-book
+    assert judge_page(notes) == ("transcriber's note", None)
