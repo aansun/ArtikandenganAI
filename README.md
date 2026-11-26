@@ -11,6 +11,8 @@ order, and they are translated one after another while you do something else.
 ## What it does
 
 - **Queue.** Add many books at once, drag them into the order you want, pause and resume any time.
+- **Your pace.** Switch off the polish pass for novels, or send up to three requests at once, to finish
+  sooner.
 - **Consistent names.** For fiction the app first builds a glossary of characters, places and terms, so
   names are written the same way from the first page to the last, and it suggests a writing style that
   fits the book. Multi-volume novels are split and translated volume by volume.
@@ -32,7 +34,7 @@ through an API key. NNAI Translator narrows that down to translating whole **boo
 - **Names that stay the same.** Fiction gets a glossary of characters, places and terms before translating,
   and you review it in one screen before the long run starts.
 - **A style that fits the book.** A writing style is recommended from the text itself, then a polish pass
-  smooths the result.
+  smooths the result (you can switch it off).
 - **Series.** A multi-volume file is split and translated volume by volume.
 - **Cleaning and checking.** Licence headers, donation appeals and download-site credits are removed
   instead of translated, inconsistent names are repaired, and every page is checked against its source.
