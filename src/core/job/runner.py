@@ -36,6 +36,8 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from src.core.llm import activity
+
 from .config import OP_REFINE, OP_TERM_FIX, JobConfig
 from .context import JobContext
 from .prepare import apply_auto_prep, snapshot_custom_instructions, snapshot_glossary
@@ -684,6 +686,7 @@ class JobRunner:
             return None
 
     def _set_phase(self, phase: str) -> None:
+        activity.set_phase(phase)
         self._safe(lambda: self.checkpoint_manager.set_job_phase(self.translation_id, phase))
 
     def _mark(self, method: str, terminal: bool = True) -> None:

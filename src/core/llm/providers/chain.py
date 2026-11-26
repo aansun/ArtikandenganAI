@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from .. import activity
 from ..base import LLMProvider, LLMRequest, LLMResponse
 from ..exceptions import ProviderError
 from ..policy import RetryPolicy
@@ -112,15 +113,20 @@ class ChainProvider(LLMProvider):
         last_error: Optional[ProviderError] = None
         for i, (provider, model) in enumerate(order):
             attempt = dataclasses.replace(request, model=model) if model is not None else request
+            started = time.monotonic()
             try:
                 response = await provider._send(attempt)
             except ProviderError as error:
+                activity.record_request(provider.provider_name, attempt.model, started, attempt,
+                                        error=error)
                 if error.context_overflow:
                     raise
                 last_error = error
                 nxt = order[i + 1][0].display_name if i + 1 < len(order) else None
                 self._record_failure(provider, error, nxt)
                 continue
+            activity.record_request(provider.provider_name, attempt.model, started, attempt,
+                                    response=response)
             self._breaker(provider).failures = 0
             _LAST_ENGINE["name"] = provider.provider_name
             return response

@@ -90,6 +90,9 @@ final class SnapshotTests: XCTestCase {
         try render(env(ProcessView {}, m), name: "2-process-dark", size: size, dark: true)
         try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "3-library-dark", size: size, dark: true)
         try render(env(SettingsView(), m), name: "4-settings-dark", size: CGSize(width: 700, height: 900), dark: true)
+        Loc.shared.language = .id
+        try render(env(SettingsView(height: 1700), m), name: "4-settings-full-id", size: CGSize(width: 700, height: 1700))
+        Loc.shared.language = .en
         try render(env(ProcessView {}, m), name: "2-process", size: size)
         try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "3-library-mock", size: size)
         for width in [1180, 980, 940, 760] {

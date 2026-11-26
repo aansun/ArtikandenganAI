@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Sequence, Set
 
 from src.core.agent import models as model_list
 from src.core.agent.routing import check_allowed
-from src.core.llm import ProviderConfig, create_llm_provider
+from src.core.llm import ProviderConfig, activity, create_llm_provider
 from src.core.llm.base import LLMRequest
 from src.core.llm.exceptions import ProviderError
 from src.core.llm.providers.agy import find_agy_executable
@@ -105,6 +105,22 @@ async def _probe(name: str) -> Engine:
     return inactive(reason)
 
 
+def _state_word(engine: Engine) -> str:
+    """Why an engine is or is not usable, as one word (its reason may name the account)."""
+    if engine.active:
+        return "ok"
+    if engine.reason == "not installed":
+        return "not_installed"
+    if engine.reason.startswith(NO_MODEL):
+        return "no_model"
+    lowered = engine.reason.lower()
+    if any(w in lowered for w in ("quota", "limit", "429")):
+        return "quota"
+    if any(w in lowered for w in ("sign", "auth", "log in", "login", "key", "401")):
+        return "auth"
+    return "other"
+
+
 def _read_cache(path: Optional[Path]) -> Optional[Dict[str, dict]]:
     if not path or not path.exists():
         return None
@@ -138,6 +154,9 @@ def detect_engines(order: Optional[Sequence[str]] = None, *, cache_path: Optiona
             return await asyncio.gather(*(_probe(n) for n in missing))
         for engine in asyncio.run(run()):
             found[engine.name] = engine
+        activity.record("engines", engines=[
+            {"engine": n, "active": found[n].active, "models": found[n].models,
+             "state": _state_word(found[n])} for n in names])
         if cache_path:
             try:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)

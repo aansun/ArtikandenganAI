@@ -7,6 +7,8 @@ struct SettingsView: View {
     @Environment(Updater.self) private var updater
     @Environment(AppearanceStore.self) private var appearance
     @State private var apiKey = ""
+    @State private var summaryCopied: Bool?
+    var height: CGFloat = 820            // the window scrolls; the screen tests render it whole
     @State private var keyStored = !Secrets.googleBooksKey.isEmpty
 
     var body: some View {
@@ -104,6 +106,27 @@ struct SettingsView: View {
                 }
 
                 group {
+                    row(loc.t("settings.log"), loc.t("settings.logHint")) {
+                        Toggle("", isOn: $model.keepLog).labelsHidden().toggleStyle(.switch).tint(Theme.green)
+                    }
+                    divider
+                    row(loc.t("settings.logShare"), summaryCopied.map { loc.t($0 ? "settings.logCopied" : "settings.logCopyFailed") } ?? loc.t("settings.logShareHint")) {
+                        HStack {
+                            Button(loc.t("settings.logFolder")) { model.openLogFolder() }.buttonStyle(GhostButtonStyle())
+                            Button(loc.t("settings.logCopy")) { Task { summaryCopied = await model.copyLogSummary() } }
+                                .buttonStyle(GhostButtonStyle()).disabled(!model.env.isReady)
+                            if summaryCopied == true {
+                                Button(loc.t("settings.logReport")) { NSWorkspace.shared.open(AboutPanel.logReportURL) }.buttonStyle(GhostButtonStyle())
+                            }
+                        }
+                    }
+                    divider
+                    row(loc.t("settings.logAbout"), loc.t("settings.logAboutHint")) {
+                        Button(loc.t("settings.open")) { NSWorkspace.shared.open(AboutPanel.logPageURL) }.buttonStyle(GhostButtonStyle())
+                    }
+                }
+
+                group {
                     row(loc.t("settings.keepAwake"), loc.t("settings.keepAwakeHint")) { Toggle("", isOn: $model.keepAwake).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
                     divider
                     row(loc.t("settings.notifyVolume"), "") { Toggle("", isOn: $model.notifyVolume).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
@@ -129,7 +152,7 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 24).padding(.vertical, 20)
         }
-        .frame(width: 700, height: 820)
+        .frame(width: 700, height: height)
         .background(Theme.window)
     }
 

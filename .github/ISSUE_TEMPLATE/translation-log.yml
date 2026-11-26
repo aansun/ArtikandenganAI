@@ -1,0 +1,25 @@
+name: Translation log report
+description: Share the summary of your translation log, to improve the model recommendations
+title: "[log] "
+labels: ["translation-log"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public. Paste only the summary made by **Settings > Copy summary** (or
+        `python translate_book.py --log-report`), after reading it. Please do not attach the log
+        files, books or translations. See [Translation log](../blob/main/docs/TRANSLATION_LOG.md).
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: "# Translation log summary ..."
+    validations:
+      required: true
+  - type: textarea
+    id: impression
+    attributes:
+      label: How did the translations read? (optional)
+      description: Which model read best or worst to you, and for what kind of book. No passages of copyrighted books, please.
+    validations:
+      required: false

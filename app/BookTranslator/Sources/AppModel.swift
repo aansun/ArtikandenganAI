@@ -66,6 +66,9 @@ final class AppModel {
     var notifyAttention: Bool = UserDefaults.standard.object(forKey: "notifyAttention") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyAttention, forKey: "notifyAttention"); if notifyAttention { requestNotificationAccess() } }
     }
+    var keepLog: Bool = BackendEnvironment.keepsLog {
+        didSet { UserDefaults.standard.set(keepLog, forKey: "keepLog") }
+    }
     var keepAwake: Bool = UserDefaults.standard.object(forKey: "keepAwake") as? Bool ?? true {
         didSet { UserDefaults.standard.set(keepAwake, forKey: "keepAwake") }
     }
@@ -746,6 +749,20 @@ final class AppModel {
         order.insert(name, at: order.firstIndex(of: target) ?? order.count)
         engineOrder = order
         refreshEngines(force: false, reorder: true)
+    }
+
+    // MARK: - Translation log
+
+    func openLogFolder() {
+        try? FileManager.default.createDirectory(at: env.logFolder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(env.logFolder)
+    }
+
+    /// Puts the engine's summary of the log on the clipboard, for the user to read and share.
+    func copyLogSummary() async -> Bool {
+        guard let data = try? await BackendClient.run(env, ["--log-report"]), !data.isEmpty else { return false }
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.setString(String(decoding: data, as: UTF8.self), forType: .string)
     }
 
     // MARK: - Library

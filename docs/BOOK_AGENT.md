@@ -158,6 +158,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--engines codex,claude`, `--refresh-engines` | Order or subset of engines for `auto`; probe them again instead of using the cached result |
 | `--style auto\|formal\|santai\|sastra` | Translation style; `auto` follows the recommendation |
 | `--set-metadata BOOK_FOLDER --field F --value V` | Set one metadata field (title, creator, description, publisher, date, subject, language, series, isbn, cover) of every translated volume and exit; `\|` separates several subjects or authors; `cover` takes an image path |
+| `--no-log`, `--log-report` | Do not keep the [translation log](TRANSLATION_LOG.md) (also `AGENT_LOG=0`); print its summary |
 | `--detect` | Print the engines found, as JSON, and exit |
 | `--inspect FILE` | Print what the app shows for a book (title, author, volumes, fiction or not, estimated time), as JSON, and exit |
 | `--watch` | Worker mode: keep translating whatever lands in the inbox (cloud) |

@@ -87,7 +87,7 @@ final class ModelDecodingTests: XCTestCase {
 @MainActor
 final class QueueTests: XCTestCase {
     /// These tests run in the app's own defaults: put back every setting they change.
-    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests"]
+    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -184,6 +184,16 @@ final class QueueTests: XCTestCase {
         XCTAssertTrue(AppModel.readQueue(file: m.env.queueFile, inbox: m.env.inbox).isEmpty)
         let copy = m.env.booksDir.appendingPathComponent(".app-queue.unreadable.json")
         XCTAssertEqual(try String(contentsOf: copy, encoding: .utf8), "not a queue")
+    }
+
+    func testTheLogIsOnUnlessSwitchedOff() {
+        UserDefaults.standard.removeObject(forKey: "keepLog")
+        let m = model()
+        XCTAssertTrue(m.keepLog)
+        XCTAssertFalse(m.env.makeProcess(["--detect"]).arguments?.contains("--no-log") ?? true)
+        m.keepLog = false
+        XCTAssertTrue(m.env.makeProcess(["--detect"]).arguments?.contains("--no-log") ?? false)
+        XCTAssertEqual(m.env.logFolder.lastPathComponent, "_activity-log")
     }
 
     func testUnreadyAndKindToggle() {

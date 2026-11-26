@@ -17,6 +17,9 @@ order, and they are translated one after another while you do something else.
   names are written the same way from the first page to the last, and it suggests a writing style that
   fits the book. Multi-volume novels are split and translated volume by volume.
 - **Sturdy.** If one AI tool runs out of quota or fails, the next one takes over by itself.
+- **A translation log you control.** Which model translated, how fast and how cleanly, kept on your Mac to
+  improve the recommendations. No book text, and nothing is sent; switch it off in Settings
+  ([what it records](docs/TRANSLATION_LOG.md)).
 - **A library.** Finished books appear with their covers. Check the metadata, fix a field, or look the book
   up online by its ISBN (Open Library, Google Books) before you put it in Apple Books.
 - **Your Mac.** Light and dark theme, English or Indonesian menus, 18 target languages

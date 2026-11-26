@@ -14,6 +14,7 @@ struct BackendEnvironment {
 
     var script: URL { root.appendingPathComponent("translate_book.py") }
     var inbox: URL { booksDir.appendingPathComponent("inbox") }
+    var logFolder: URL { booksDir.appendingPathComponent("_activity-log") }
     var statusFile: URL { booksDir.appendingPathComponent("status.json") }
     var queueFile: URL { booksDir.appendingPathComponent(".app-queue.json") }
 
@@ -59,18 +60,23 @@ struct BackendEnvironment {
 
     static let cachedPath = searchPath()
 
+    /// The engine's local activity log is on until the user switches it off. Read for every run.
+    static var keepsLog: Bool { UserDefaults.standard.object(forKey: "keepLog") as? Bool ?? true }
+
     func makeProcess(_ arguments: [String]) -> Process {
         let process = Process()
         process.executableURL = python
         process.currentDirectoryURL = workDir ?? root
         let order = EngineInfo.completeOrder(engineOrder)
         let engines = order.isEmpty ? [] : ["--engines", order.joined(separator: ",")]
-        process.arguments = [script.path, "--books-dir", booksDir.path] + engines + arguments
+        let log = Self.keepsLog ? [] : ["--no-log"]
+        process.arguments = [script.path, "--books-dir", booksDir.path] + engines + log + arguments
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = Self.cachedPath
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONDONTWRITEBYTECODE"] = "1"                 // never write into the (signed) app bundle
+        env["NNAI_APP_VERSION"] = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         if env["ATTRIBUTION_ENABLED"] == nil { env["ATTRIBUTION_ENABLED"] = "false" }   // no translator signature in results
         process.environment = env
         return process

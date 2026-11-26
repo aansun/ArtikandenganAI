@@ -37,6 +37,8 @@ ensure_utf8_stdio()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from src.core.agent import AgentOptions, BookAgent, engines as engines_mod, library, parse_volume_selection  # noqa: E402
+from src.core.agent import log_report  # noqa: E402
+from src.core.llm import activity  # noqa: E402
 from src.core.agent.routing import (  # noqa: E402
     DEFAULT_TRANSLATE_PROVIDER, PROFILES, PROVIDER_AGY_CLAUDE, PROVIDER_AUTO, PROVIDER_CLAUDE,
     TRANSLATE_PROVIDERS, check_allowed)
@@ -73,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "(default: claude,codex,agy,opencode, or $AGENT_ENGINES).")
     p.add_argument("--refresh-engines", action="store_true",
                    help="Probe the engines again instead of using the result kept a few minutes.")
+    p.add_argument("--no-log", dest="log", action="store_false",
+                   help="Do not keep the local activity log (engines, models, speed and quality "
+                        "signals, in <books>/_activity-log). Also off with AGENT_LOG=0.")
+    p.add_argument("--log-report", action="store_true",
+                   help="Print a summary of the activity log as Markdown and exit.")
     p.add_argument("--detect", action="store_true",
                    help="Print the engines found on this machine as JSON and exit.")
     p.add_argument("--inspect", metavar="FILE",
@@ -197,6 +204,7 @@ def _check_tools(parser, provider: str) -> None:
 def _inspect(parser, args, root, order) -> int:
     from src.core.agent.inspect_book import inspect_book
     from src.core.llm import ProviderConfig, create_llm_provider
+    activity.set_phase("inspect")
     path = Path(args.inspect)
     if not path.exists():
         parser.error(f"not found: {path}")
@@ -218,7 +226,8 @@ def _selfcheck() -> int:
              "src.core.agent.epub_metadata", "src.core.agent.intake", "src.core.agent.inspect_book",
              "src.core.llm.providers.claude_cli", "src.core.llm.providers.codex_cli",
              "src.core.llm.providers.agy", "src.core.llm.providers.opencode_cli",
-             "src.core.llm.providers.chain", "src.core.agent.models"]
+             "src.core.llm.providers.chain", "src.core.agent.models",
+             "src.core.agent.log_report", "src.core.llm.activity"]
     missing = []
     for name in names:
         try:
@@ -262,6 +271,12 @@ def main(argv=None) -> int:
 
     if args.selfcheck:
         return _selfcheck()
+    if args.log_report:
+        print(log_report.summary(root / log_report.FOLDER), end="")
+        return 0
+    keep_log = args.log and os.getenv("AGENT_LOG", "").strip() != "0"
+    activity.configure(root / log_report.FOLDER if keep_log else None,
+                       app_version=os.getenv("NNAI_APP_VERSION", ""))
     if args.detect:
         found = engines_mod.detect_engines(order, cache_path=root / ".engines.json",
                                            refresh=args.refresh_engines)

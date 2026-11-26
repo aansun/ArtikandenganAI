@@ -50,7 +50,7 @@ from src.core.agent.routing import (
 from src.core.agent.volumes import Volume, slugify, split_into_volumes
 from src.core.auto_prep import extract_source_text
 from src.core.job import JobConfig, JobStatus
-from src.core.llm import ProviderConfig, create_llm_provider
+from src.core.llm import ProviderConfig, activity, create_llm_provider
 
 logger = logging.getLogger("core.agent")
 
@@ -151,6 +151,8 @@ class BookAgent:
         self.profile: Optional[BookProfile] = None
         self.style_text = ""
         self.refine_on = False
+        self._chunk_stats: Dict[str, Any] = {}
+        self._resumed = False
         self._qa_results: Dict[int, list] = {}
         self.engines: List[engines_mod.Engine] = []
         self._engines_ready = False
@@ -266,6 +268,7 @@ class BookAgent:
         if self.state.profile:
             return BookProfile(**self.state.profile)
         text = extract_source_text(file_path=str(volumes[0].path))
+        activity.set_phase("classify")
         if self.auto:
             provider = self._chain(CLASSIFIER_TIER)
         else:
@@ -293,6 +296,7 @@ class BookAgent:
             self.say(f"Glossary: reusing {path} (edit it freely, it is read as is)")
             return path
         self.say(f"Glossary: building from {len(volumes)} volume(s)")
+        activity.set_phase("glossary")
         count = await build_glossary(
             [v.path for v in volumes], profile.source_language, self.opt.target_language,
             self._chain(GLOSSARY_MODEL) if self.auto else self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL),
@@ -331,6 +335,7 @@ class BookAgent:
                 known = json.loads(choice_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 known = {}
+        activity.set_phase("style")
         if known.get("recommended"):
             recommended = {"id": known["recommended"], "why": known.get("why", "")}
         else:
@@ -359,6 +364,7 @@ class BookAgent:
 
         calibration = self.workdir / "calibration.md"
         if profile.is_fiction and not calibration.exists():
+            activity.set_phase("calibrate")
             done = await style_mod.calibrate(
                 text, profile, self.opt.target_language, prompt_options, provider, calibration)
             self.say(f"Calibration: {done} passage(s) written to {calibration}" if done
@@ -418,6 +424,8 @@ class BookAgent:
 
         def on_stats(stats):
             total = stats.get("total_chunks", 0) or 0
+            if total and activity.phase() == "translate":      # the polish pass counts something else
+                self._chunk_stats = dict(stats)
             if time.time() - seen["at"] >= 2 and total:
                 seen["at"] = time.time()
                 try:    # the polish pass counts its own chunks from 0: say which pass this percentage belongs to
@@ -427,6 +435,7 @@ class BookAgent:
                 self._write_status("running", vol, int(100 * (stats.get("completed_chunks", 0) or 0) / total), phase)
 
         self._write_status("running", vol, 0)
+        self._chunk_stats, self._resumed = {}, resume
         result = run_cli_job(job, cli_logger, translation_id=job_id,
                              checkpoint_manager=manager, is_resume=resume, on_stats=on_stats)
         vol.error = result.error or ""
@@ -694,24 +703,50 @@ class BookAgent:
                 self.say(f"Volume {vol.index}: already translated, skipped")
                 continue
             self.say(f"Volume {vol.index}/{len(self.state.volumes)}: {vol.label}")
+            volume_started = time.time()
+            activity.take_models()      # what answered before this volume is not counted for it
+            self._chunk_stats, self._resumed = {}, False
             try:
                 status = self._translate_volume(vol, profile, choice, glossary, cli_logger)
             except Exception as exc:  # one broken volume must not lose the others
                 logger.exception("Volume %d failed", vol.index)
                 vol.status, vol.error = JobStatus.FAILED.value, str(exc)
                 self._save_state()
+                self._log_volume(vol, profile, choice, volume_started)
                 continue
             vol.status = status.value
             if status is JobStatus.COMPLETED:
                 self._finish_volume(vol, profile, cli_logger)
                 self._write_qa_report()
             self._save_state()
+            self._log_volume(vol, profile, choice, volume_started)
             if status is JobStatus.RATE_LIMITED:
                 self.say("Usage limit reached: stopping. Run the same command later to continue.")
                 break
 
         self._write_status("idle")
         return self._report(time.time() - started)
+
+    def _log_volume(self, vol: VolumeState, profile: BookProfile, choice: ModelChoice,
+                    started: float) -> None:
+        """How this run of a volume went, for the activity log: numbers only, nothing of the book."""
+        stats = self._chunk_stats
+        done = vol.status == JobStatus.COMPLETED.value
+        activity.record(
+            "volume", status=vol.status, genre=profile.genre, book_class=choice.book_class,
+            profile=self.opt.profile, source_language=profile.source_language,
+            target_language=self.opt.target_language, polish=self.refine_on,
+            parallel=self.opt.parallel, chunk_tokens=self.opt.max_tokens_per_chunk,
+            resumed=self._resumed, seconds=round(time.time() - started, 1),
+            models=activity.take_models(),
+            chunks_total=stats.get("total_chunks"), chunks_failed=stats.get("failed_chunks"),
+            chunks_untranslated=stats.get("fallback_used"),
+            chunks_token_aligned=stats.get("token_alignment_used"),
+            chunks_retried=stats.get("successful_after_retry"),
+            placeholder_errors=stats.get("placeholder_errors"),
+            qa_flags=vol.qa_flags if done else None,
+            names_fixed=len(vol.fixed_variants) if done else None,
+            metadata_missing=len(vol.metadata_missing) if done else None)
 
     def _report(self, seconds: float) -> int:
         chosen = self.opt.only_volumes
