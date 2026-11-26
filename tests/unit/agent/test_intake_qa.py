@@ -2,9 +2,13 @@ import json
 import zipfile
 
 
+import pytest
+from lxml import etree
+
 import translate_book
 from src.core.agent import qa
-from src.core.agent.intake import boilerplate_reason, clean_text, clean_volume
+from src.core.agent.intake import (CUT_REASON, boilerplate_reason, clean_text, clean_volume,
+                                   judge_page)
 from tests.unit.agent.epub_fixture import build_omnibus
 from tests.unit.agent.test_pipeline_e2e import book_dir, calls, env, is_translation, upload  # noqa: F401
 
@@ -167,3 +171,77 @@ def test_the_pipeline_deletes_them_and_does_not_flag_their_absence(env, tmp_path
     assert not [r for r in agent._qa_results[1] if "missing from the translation" in " ".join(r.flags)]
     with zipfile.ZipFile(output) as z:
         assert not [n for n in z.namelist() if "gblicense" in n]
+
+
+def _page(body: str) -> bytes:
+    return ('<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            f"<head><title>t</title></head><body>{body}</body></html>").encode()
+
+
+STORY = "<h3>CHAPTER I</h3>" + "<p>Mr. Jasper walked to the cathedral in the evening light.</p>" * 40
+START = "<p>*** START OF THE PROJECT GUTENBERG EBOOK, THE BOOK ***</p>"
+LICENCE = "<p>Project Gutenberg-tm works. Project Gutenberg-tm terms. Project Gutenberg-tm gifts.</p>"
+
+
+def test_chapters_sharing_a_page_with_the_start_line_are_kept():
+    """A real book lost 16 of 23 chapters: its big pages also held the licence lines."""
+    reason, page = judge_page(_page("<p>The Project Gutenberg EBook of the book</p>" + START + STORY))
+    assert reason == CUT_REASON
+    text = page.decode()
+    assert text.count("Mr. Jasper walked") == 40 and "CHAPTER I" in text
+    assert "GUTENBERG" not in text.upper()
+
+
+@pytest.mark.parametrize("footer", [
+    "<p>*** END OF THE PROJECT GUTENBERG EBOOK, THE BOOK ***</p>" + LICENCE,
+    "<hr/>*** END OF THE PROJECT GUTENBERG EBOOK, THE BOOK ***<p>This file should be named x.txt</p>",
+    "<div>End of Project Gutenberg's The Book, by A Writer*** END OF THIS PROJECT GUTENBERG EBOOK "
+    "THE BOOK ***<div><p>licence</p></div></div>",
+])
+def test_chapters_sharing_a_page_with_the_end_line_are_kept(footer):
+    reason, page = judge_page(_page(f"<div>{STORY}</div>{footer}"))
+    assert reason == CUT_REASON
+    text = page.decode()
+    assert text.count("Mr. Jasper walked") == 40
+    assert "GUTENBERG" not in text.upper() and "licence" not in text and "should be named" not in text
+    etree.fromstring(page)                                  # still well formed
+
+
+def test_a_page_with_both_lines_keeps_only_what_is_between():
+    page = judge_page(_page(f"<p>header</p>{START}{STORY}<p>*** END OF THIS PROJECT GUTENBERG "
+                            "EBOOK X ***</p><p>footer</p>"))[1].decode()
+    assert page.count("Mr. Jasper walked") == 40 and "header" not in page and "footer" not in page
+
+
+def test_a_page_with_nothing_but_the_header_is_left_out():
+    reason, page = judge_page(_page("<p>The Project Gutenberg EBook of X</p>" + START + "<p>Produced by Y</p>"))
+    assert reason and page is None
+
+
+def test_a_page_whose_line_cannot_be_located_is_kept_whole():
+    split = "<p><b>***</b> START OF THE PROJECT GUTENBERG EBOOK X ***</p>"
+    assert judge_page(_page(split + STORY * 3)) == ("", None)
+
+
+def test_a_long_story_page_is_not_dropped_for_naming_the_licence():
+    assert judge_page(_page(STORY * 20 + LICENCE)) == ("", None)
+
+
+def test_a_book_in_big_pages_keeps_every_chapter(tmp_path):
+    book = build_omnibus(tmp_path / "saga.epub", 1, 2)
+    big = tmp_path / "big.epub"
+    with zipfile.ZipFile(book) as a, zipfile.ZipFile(big, "w") as b:
+        for info in a.infolist():
+            data = a.read(info.filename)
+            if info.filename.endswith("v1c1.xhtml"):
+                data = _page(START + STORY)
+            if info.filename.endswith("v1c2.xhtml"):
+                data = _page(STORY + "<p>*** END OF THE PROJECT GUTENBERG EBOOK X ***</p>" + LICENCE)
+            b.writestr(info, data)
+    path, removed = clean_volume(big, tmp_path / "volumes")
+    assert [why for _, why in removed] == [CUT_REASON, CUT_REASON]
+    with zipfile.ZipFile(path) as z:
+        assert z.testzip() is None and z.namelist()[0] == "mimetype"
+        for chapter in ("v1c1.xhtml", "v1c2.xhtml"):
+            text = z.read(f"OEBPS/{chapter}").decode()
+            assert text.count("Mr. Jasper walked") == 40 and "GUTENBERG" not in text.upper()

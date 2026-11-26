@@ -57,7 +57,9 @@ One run does, for each book:
 1. **File** the upload: move it from `inbox/` into `<book>/source/`.
 2. **Clean and split.** Boilerplate pages of an e-book (licence header, transcriber's notes,
    donation appeal, download-site credits) are removed from the working copy, so they are neither
-   translated nor paid for; the original upload is never touched. A multi-volume file is then cut
+   translated nor paid for; the original upload is never touched. A page is left out only when it
+   holds nothing else: where the Gutenberg start or end line shares a page with chapters, just what
+   lies outside those lines is cut. A multi-volume file is then cut
    into one file per volume (EPUB via the table of contents or headings, TXT via lines such as
    `Volume 3`); a folder of volume files is used as is; with no markers the book is one volume.
 3. **Classify** the book (genre, source language, title) with one cheap call. If it fails, a local
@@ -242,5 +244,7 @@ built or run yet.
 - There is no bilingual review pass, and chunks are cut by size, not by scene, with only the tail
   of the previous chunk as context.
 - Boilerplate detection relies on specific markers (Project Gutenberg lines, licence text,
-  "Transcriber's Note", download-site credits); a page without them is translated.
+  "Transcriber's Note", download-site credits); a page without them is translated. Up to version
+  1.0.6 a whole page was left out for a Gutenberg line even when it held chapters: a book translated
+  then from such a file may be missing chapters and has to be translated again from the upload.
 - Multi-volume splitting has been tested on a synthetic EPUB, not yet on a real multi-volume book.

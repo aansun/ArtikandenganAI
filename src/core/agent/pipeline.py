@@ -249,7 +249,7 @@ class BookAgent:
         for v in volumes:
             path, removed = clean_volume(v.path, self.workdir / library.VOLUMES)
             if removed:
-                self.say(f"Intake: left out {len(removed)} boilerplate document(s) of {v.label}: "
+                self.say(f"Intake: removed boilerplate from {len(removed)} document(s) of {v.label}: "
                          + ", ".join(f"{name} ({why})" for name, why in removed))
             cleaned.append(Volume(v.index, v.label, path))
         volumes = cleaned
