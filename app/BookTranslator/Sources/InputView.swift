@@ -198,7 +198,7 @@ private struct ReadyRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(position)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+            Text("\(position)").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.onAccent)
                 .frame(width: 24, height: 24).background(Theme.accent, in: Circle())
             CoverView(title: book.title, image: model.queueCovers[book.id], width: 34, height: 48, radius: 3)
             VStack(alignment: .leading, spacing: 1) {

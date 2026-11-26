@@ -23,6 +23,7 @@ struct RootView: View {
             case .library: LibraryScreen(openFolder: $openFolder)
             }
         }
+        .tint(Theme.accent)              // inside the body: a modifier on the scene would reset the window frame
         .frame(minWidth: 940, minHeight: 640)
         .background(Theme.window)
         .background(WindowConfigurator())
@@ -78,7 +79,7 @@ struct RootView: View {
                     if s != .library { openFolder = nil }
                 } label: {
                     HStack(spacing: 8) {
-                        Text("\(s.number)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                        Text("\(s.number)").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.onAccent)
                             .frame(width: 20, height: 20).background(on ? Theme.accent : Theme.stageIdle, in: Circle())
                         Text(loc.t("nav.\(s.rawValue)")).font(.system(size: 14, weight: on ? .semibold : .regular))
                         Text("\(count(s))").font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit()

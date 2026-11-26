@@ -209,7 +209,7 @@ struct MetadataLookupSheet: View {
     private var footer: some View {
         HStack(spacing: 10) {
             if !applyErrors.isEmpty {
-                Text(loc.t("lookup.applyFailed", applyErrors.joined(separator: " · "))).font(.system(size: 11)).foregroundStyle(.red).lineLimit(3)
+                Text(loc.t("lookup.applyFailed", applyErrors.joined(separator: " · "))).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(3)
             }
             if let page = candidate?.pageURL {
                 Button(loc.t("lookup.openPage")) { NSWorkspace.shared.open(page) }.buttonStyle(.link).font(.system(size: 12))

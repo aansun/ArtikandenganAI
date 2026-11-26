@@ -23,6 +23,7 @@ hand: when it exists, the agent reuses it instead of rebuilding it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -189,6 +190,25 @@ def write_glossary(path: Path, terms: List[Dict[str, str]], source_language: str
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _saved_parts(path: Path) -> Dict[str, list]:
+    """The answers of the entity passes a stopped run had already received."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _keep_parts(path: Path, done: Dict[str, list]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(done, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        logger.debug("Glossary progress not saved: %s", exc)
+
+
 async def build_glossary(volume_files: Sequence[Path], source_language: str,
                          target_language: str, llm_provider, output: Path,
                          progress: Optional[Callable[[str], None]] = None) -> int:
@@ -198,6 +218,8 @@ async def build_glossary(volume_files: Sequence[Path], source_language: str,
     translation proceeds without a glossary.
     """
     say = progress or (lambda message: None)
+    progress_file = output.with_name(output.stem + "_parts.json")
+    done = _saved_parts(progress_file)
     per_volume: List[Dict[str, Dict[str, str]]] = []
     for n, path in enumerate(volume_files, 1):
         text = extract_source_text(file_path=str(path))
@@ -209,15 +231,22 @@ async def build_glossary(volume_files: Sequence[Path], source_language: str,
         for k, part in enumerate(parts, 1):
             sample, _count, _names = take_glossary_samples(
                 part, SAMPLE_BUDGET, SAMPLE_COUNT, min_sample_size=500)
-            try:
-                candidates, warnings = await suggest_terms(
-                    sample, source_language, target_language, llm_provider,
-                    max_chars=SAMPLE_BUDGET)
-            except Exception as exc:  # one failed part must not lose the others
-                logger.info("Glossary part %d.%d failed: %s", n, k, exc)
-                continue
-            for warning in warnings or []:
-                logger.info("Glossary %d.%d: %s", n, k, warning)
+            mark = hashlib.sha256(f"{target_language}\x00{sample}".encode("utf-8")).hexdigest()
+            if mark in done:                    # asked before the run was stopped
+                candidates = done[mark]
+            else:
+                try:
+                    candidates, warnings = await suggest_terms(
+                        sample, source_language, target_language, llm_provider,
+                        max_chars=SAMPLE_BUDGET)
+                except Exception as exc:  # one failed part must not lose the others
+                    logger.info("Glossary part %d.%d failed: %s", n, k, exc)
+                    continue
+                for warning in warnings or []:
+                    logger.info("Glossary %d.%d: %s", n, k, warning)
+                if candidates:
+                    done[mark] = candidates
+                    _keep_parts(progress_file, done)
             for source, entry in candidate_entries(candidates).items():
                 entries.setdefault(source, entry)
         say(f"Glossary: volume {n}/{len(volume_files)} -> {len(entries)} terms "
@@ -226,10 +255,12 @@ async def build_glossary(volume_files: Sequence[Path], source_language: str,
 
     merged = merge_terms(per_volume)
     if not merged:
+        progress_file.unlink(missing_ok=True)
         return 0
     before = len(merged)
     merged = await consolidate(merged, source_language, target_language, llm_provider)
     if len(merged) != before:
         say(f"Glossary: consolidated {before} entries into {len(merged)}")
     write_glossary(output, merged, source_language, target_language)
+    progress_file.unlink(missing_ok=True)
     return len(merged)

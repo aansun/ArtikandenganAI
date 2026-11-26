@@ -8,6 +8,7 @@ struct BookDetailView: View {
     var onBack: () -> Void
     @State private var metadata: EpubMetadata?
     @State private var confirmRedo = false
+    @State private var deletion: DeletionPlan?
     @State private var showLookup = false
     @State private var editing: String?
     @State private var draft = ""
@@ -29,6 +30,12 @@ struct BookDetailView: View {
                     if !applied.isEmpty { notice = loc.t("lookup.applied", applied.joined(separator: ", ")) }
                     Task { await loadMetadata() }
                 }
+            }
+        }
+        .sheet(item: $deletion) { plan in
+            DeleteBookSheet(book: book, plan: plan) { deleted in
+                deletion = nil
+                if deleted { onBack() }
             }
         }
         .confirmationDialog(loc.t("detail.redoConfirm"), isPresented: $confirmRedo) {
@@ -83,6 +90,11 @@ struct BookDetailView: View {
                     Button { confirmRedo = true } label: { Text(loc.t("detail.redo")).frame(maxWidth: .infinity) }
                         .buttonStyle(GhostButtonStyle(tint: Theme.accent)).disabled(model.isBusy)
                 }
+                Button { deletion = model.deletionPlan(book.folder) } label: {
+                    Text(loc.t("delete.button")).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(GhostButtonStyle(tint: Theme.danger)).disabled(!model.canDelete(book.folder))
+                .help(model.canDelete(book.folder) ? "" : loc.t("delete.queued"))
             }
         }
     }
@@ -213,7 +225,7 @@ struct BookDetailView: View {
                 Text(f.label).font(.system(size: 11)).foregroundStyle(Theme.faint)
                 if editing == f.id {
                     TextField("", text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).font(.system(size: 13)).lineLimit(1...6)
-                    if let editError { Text(editError).font(.system(size: 11)).foregroundStyle(.red).lineLimit(3) }
+                    if let editError { Text(editError).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(3) }
                     HStack {
                         Button(loc.t("common.cancel")) { editing = nil; editError = nil }.buttonStyle(GhostButtonStyle())
                         Button(model.metadataBusy ? loc.t("detail.saving") : loc.t("detail.save")) { save(f.id) }

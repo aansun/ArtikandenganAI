@@ -218,8 +218,8 @@ struct SettingsView: View {
     // MARK: - Engines
 
     private static let badge: [String: (String, Color)] = [
-        "claude": ("C", Color(hex: 0xD97757)), "codex": ("X", Theme.codexBadge), "agy": ("A", Color(hex: 0x2F7BF0)),
-        "opencode": ("O", Color(hex: 0x6B7280)),
+        "claude": ("C", Color(hex: 0xD97757)), "codex": ("X", Theme.codexBadge), "agy": ("A", Theme.engineBlue),
+        "opencode": ("O", Theme.engineGrey),
     ]
 
     private var enginesBlock: some View {

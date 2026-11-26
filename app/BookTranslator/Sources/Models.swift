@@ -90,6 +90,9 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var volume = 0
     var pct = 0
     var polishing = false         // the percentage belongs to the polish pass, not the translation
+    var step = ""                 // the stage last worked on: "prepare", "translate" or "refine"
+    var times: [String: Int] = [:]   // seconds spent per stage (of the current volume), kept across restarts
+    var polishPlanned: Bool?      // whether the engine's last run polishes this book
     var error = ""
 
     var isQueued: Bool { [.queued, .preparing, .needsReview, .approved, .translating, .failed].contains(stage) }
@@ -118,6 +121,9 @@ extension QueueBook {
         volume = try read(.volume, or: volume)
         pct = try read(.pct, or: pct)
         polishing = try read(.polishing, or: polishing)
+        step = try read(.step, or: step)
+        times = try read(.times, or: times)
+        polishPlanned = try saved.decodeIfPresent(Bool.self, forKey: .polishPlanned)
         error = try read(.error, or: error)
     }
 }
@@ -133,6 +139,37 @@ struct EngineStatus: Codable, Equatable {
     var engine: String
     /// "translate" or "refine": the polish pass counts its own chunks again from 0.
     var phase: String?
+    var stage: String?            // "prepare", "translate" or "refine" while running
+    var times: [String: Int]?     // seconds per stage so far
+    var polish: Bool?
+}
+
+/// One step of the way a book goes, as shown above its title.
+struct BookStage: Identifiable, Equatable {
+    enum State: Equatable { case done, active, pending, skipped }
+    var id: String                // "prepare", "translate", "refine"
+    var state: State
+    var seconds: Int
+
+    static let order = ["prepare", "translate", "refine"]
+
+    /// Where `book` stands. `polishByDefault` answers for a run that has not said yet.
+    static func steps(for book: QueueBook, polishByDefault: Bool) -> [BookStage] {
+        var current = book.step
+        if book.stage == .preparing { current = "prepare" }
+        else if current.isEmpty { current = book.polishing ? "refine" : (book.pct > 0 ? "translate" : "prepare") }
+        // prepared but not translating yet: the preparation is behind us, nothing is active
+        let waiting = book.stage == .needsReview
+            || (book.stage != .translating && book.stage != .preparing && current == "prepare" && book.workdir != nil)
+        if waiting { current = "translate" }
+        let at = order.firstIndex(of: current) ?? 0
+        let polishes = current == "refine" || (book.polishPlanned ?? polishByDefault)
+        return order.enumerated().map { index, id in
+            var state: State = index < at ? .done : (index == at ? (waiting ? .pending : .active) : .pending)
+            if id == "refine" && !polishes { state = .skipped }
+            return BookStage(id: id, state: state, seconds: book.times[id] ?? 0)
+        }
+    }
 }
 
 struct StyleOption: Codable, Identifiable, Equatable {

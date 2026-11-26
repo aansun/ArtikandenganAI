@@ -32,7 +32,7 @@ struct EngineSetupView: View {
                 }
                 Button(loc.t("setup.checkAgain")) { model.runSetup() }.buttonStyle(PrimaryButtonStyle(radius: 8))
             case .failed(let message):
-                Text(loc.t("setup.failed", message)).font(.system(size: 12)).foregroundStyle(.red).multilineTextAlignment(.center).lineLimit(5)
+                Text(loc.t("setup.failed", message)).font(.system(size: 12)).foregroundStyle(Theme.danger).multilineTextAlignment(.center).lineLimit(5)
                 Button(loc.t("setup.retry")) { model.runSetup() }.buttonStyle(PrimaryButtonStyle(radius: 8))
             default:
                 Text(loc.t("setup.body")).font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)

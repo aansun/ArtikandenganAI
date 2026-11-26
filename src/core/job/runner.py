@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from src.core.llm import activity
+from src.core.refine import chunk_cache
 
 from .config import OP_REFINE, OP_TERM_FIX, JobConfig
 from .context import JobContext
@@ -377,7 +378,9 @@ class JobRunner:
         # phase (never trusting a leftover), reused on resume, removed once
         # the pass completes.
         pre_refine = job.output_path + PRE_REFINE_SUFFIX
+        polished = job.output_path + chunk_cache.SUFFIX
         if not resume_refine:
+            self._remove_file(polished)             # chunks of an earlier translation
             shutil.copyfile(job.output_path, pre_refine)
         elif not os.path.exists(pre_refine):
             self.sinks.log("resume_refine_no_snapshot",
@@ -385,9 +388,14 @@ class JobRunner:
                            "refining the current output file.")
             pre_refine = job.output_path
         refine_job = job.with_changes(input_path=pre_refine)
-        result = await self._run_refine(refine_job, refine_index,
-                                        meta={'enable_refinement': True, 'current_phase': 2})
+        chunk_cache.use(polished)
+        try:
+            result = await self._run_refine(refine_job, refine_index,
+                                            meta={'enable_refinement': True, 'current_phase': 2})
+        finally:
+            chunk_cache.use(None)
         if result.status is JobStatus.COMPLETED:
+            self._remove_file(polished)
             if pre_refine != job.output_path:
                 self._safe(lambda: os.remove(pre_refine))
             self._remove_partial_outputs(job.output_path)
@@ -407,9 +415,19 @@ class JobRunner:
         elif not os.path.exists(job.output_path):
             return None
         self._remove_partial_outputs(job.output_path)
+        self._remove_file(job.output_path + chunk_cache.SUFFIX)
         self.sinks.log("refine_skipped_on_resume",
                        "↻ Translation already finished and refinement is off: keeping the translation.")
         return JobResult(status=JobStatus.COMPLETED, output_path=job.output_path)
+
+    @staticmethod
+    def _remove_file(path: str) -> None:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            _logger.warning("Could not remove %s: %s", path, e)
 
     def _remove_partial_outputs(self, output_path: str) -> None:
         """Delete the `[partial] ` files an interrupted refine pass left beside

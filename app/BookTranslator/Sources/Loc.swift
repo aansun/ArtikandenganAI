@@ -37,6 +37,13 @@ final class Loc {
     func styleText(_ id: String) -> String { t("style.\(id).desc") }
 
     /// "1 volume", "4 volumes" in English; Indonesian has no plural.
+    /// Time spent, short: "42 s", "3 min 20 s", "1 h 5 min".
+    func duration(_ seconds: Int) -> String {
+        if seconds < 60 { return t("time.s", seconds) }
+        if seconds < 3600 { return t("time.ms", seconds / 60, seconds % 60) }
+        return t("time.hm", seconds / 3600, seconds % 3600 / 60)
+    }
+
     func volumes(_ n: Int) -> String { language == .en && n != 1 ? "\(n) volumes" : "\(n) volume" }
 
     func minutes(_ value: Int) -> String {
@@ -82,13 +89,13 @@ final class Loc {
         "process.emptyHint": ("Add books in Add, then press Start translating.", "Siapkan buku di langkah Masukkan, lalu tekan Mulai terjemahkan."),
         "process.goInput": ("Go to Add", "Ke Masukkan"),
         "process.now": ("Translating now", "Sedang diterjemahkan"),
-        "process.preparing": ("Preparing: reading names and choosing a style", "Menyiapkan: membaca nama dan memilih gaya"),
         "process.volumeOf": ("Volume %d of %d", "Jilid %d dari %d"),
         "process.thisVolume": ("This volume", "Jilid ini"),
         "process.remaining": ("about %@ left", "sisa sekitar %@"),
         "process.via": ("via %@", "lewat %@"),
         "process.pause": ("Pause", "Jeda"),
         "process.resume": ("Resume", "Lanjutkan"),
+        "process.preparing": ("Preparing: reading names and choosing a style", "Menyiapkan: membaca nama dan memilih gaya"),
         "process.paused": ("Paused. Progress is kept.", "Dijeda. Kemajuan tersimpan."),
         "process.queue": ("Queue", "Antre"),
         "process.queueHint": ("Starts by itself, one at a time, in this order", "Dimulai otomatis, satu per satu, sesuai urutan"),
@@ -231,9 +238,33 @@ final class Loc {
         "input.down": ("Move down", "Turunkan"),
         "input.toUploaded": ("Return to the uploaded list", "Kembalikan ke daftar unggahan"),
         "input.toInput": ("Return to Add", "Kembalikan ke Masukkan"),
-        "process.status.translating": ("Translating volume %d", "Menerjemahkan jilid %d"),
-        "process.status.polishing": ("Polishing volume %d: the translation is done", "Menghaluskan jilid %d: terjemahannya sudah selesai"),
-        "process.status.paused": ("Paused", "Dijeda"),
+        "delete.button": ("Delete from the library…", "Hapus dari pustaka…"),
+        "delete.title": ("Delete “%@”?", "Hapus “%@”?"),
+        "delete.intro": ("Everything the app keeps about this book goes with it:", "Semua data buku ini di aplikasi ikut terhapus:"),
+        "delete.translations": ("Translated books (%d)", "Hasil terjemahan (%d)"),
+        "delete.source": ("The copy of the original file", "Salinan file asli"),
+        "delete.glossary": ("Glossary: %d names and terms, with your edits", "Glosarium: %d nama dan istilah, termasuk suntingan Anda"),
+        "delete.style": ("Writing style, style guide and sample translation", "Gaya bahasa, panduan gaya, dan contoh terjemahan"),
+        "delete.progress": ("Saved progress and stage times (a new run starts from zero)", "Progres tersimpan dan durasi tahap (diulang dari nol)"),
+        "delete.metadata": ("Book details, cover and quality report", "Data buku, sampul, dan laporan kualitas"),
+        "delete.previous": ("Older versions of the translation (%d)", "Versi terjemahan lama (%d)"),
+        "delete.series": ("Other volumes of “%@” keep their own names and style. A volume added later can no longer take them from this book.", "Jilid lain dari “%@” tetap menyimpan nama dan gayanya sendiri. Jilid yang ditambahkan nanti tidak bisa lagi mengambilnya dari buku ini."),
+        "delete.kept": ("Not deleted: copies in the Books app, the translation log, and files outside the library.", "Tidak terhapus: salinan di aplikasi Buku, log terjemahan, dan file di luar pustaka."),
+        "delete.trash": ("The folder (%@) is moved to the Trash, so it can still be recovered there.", "Folder (%@) dipindahkan ke Tempat Sampah, jadi masih bisa dipulihkan dari sana."),
+        "delete.confirm": ("Move to Trash", "Pindahkan ke Tempat Sampah"),
+        "delete.queued": ("This book is in the queue. Remove it from the queue first.", "Buku ini ada di antrean. Keluarkan dari antrean dulu."),
+        "delete.notABook": ("This folder is not a book of the library.", "Folder ini bukan buku di pustaka."),
+        "delete.failed": ("Could not delete: %@", "Gagal menghapus: %@"),
+        "stage.prepare": ("Glossary & style", "Glosarium & gaya"),
+        "stage.translate": ("Translation", "Menerjemahkan"),
+        "stage.refine": ("Polish", "Penghalusan"),
+        "stage.done": ("Done", "Selesai"),
+        "stage.running": ("In progress", "Berjalan"),
+        "stage.paused": ("Paused", "Dijeda"),
+        "stage.waiting": ("Waiting", "Menunggu"),
+        "stage.skipped": ("Skipped", "Dilewati"),
+        "time.s": ("%d s", "%d dtk"),
+        "time.ms": ("%d min %d s", "%d mnt %d dtk"),
         "process.eta.paused": ("Resume any time. Progress is saved.", "Lanjutkan kapan saja. Progres tersimpan."),
         "process.eta.today": ("Estimated to finish today around %@", "Perkiraan selesai hari ini sekitar %@"),
         "process.eta.tomorrow": ("Estimated to finish tomorrow around %@", "Perkiraan selesai besok sekitar %@"),

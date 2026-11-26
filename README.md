@@ -10,7 +10,8 @@ order, and they are translated one after another while you do something else.
 
 ## What it does
 
-- **Queue.** Add many books at once, drag them into the order you want, pause and resume any time.
+- **Queue.** Add many books at once, drag them into the order you want, pause and resume any time, even
+  after closing the app. You see each stage (glossary, translation, polish) and the time it took.
 - **Your pace.** Switch off the polish pass for novels, or send up to three requests at once, to finish
   sooner.
 - **Consistent names.** For fiction the app first builds a glossary of characters, places and terms, so
@@ -39,7 +40,8 @@ through an API key. NNAI Translator narrows that down to translating whole **boo
   Automatic and the recommended one is used right away).
 - **A style that fits the book.** A writing style is recommended from the text itself, then a polish pass
   smooths the result (you can switch it off).
-- **Series.** A multi-volume file is split and translated volume by volume.
+- **Series.** A multi-volume file is split and translated volume by volume. Volumes added one by one, in any
+  order, share their names and writing style.
 - **Cleaning and checking.** Licence headers, donation appeals and download-site credits are removed
   instead of translated, inconsistent names are repaired, and every page is checked against its source.
 - **Metadata and a library.** Check and edit each book's metadata, find it online by ISBN, and browse the

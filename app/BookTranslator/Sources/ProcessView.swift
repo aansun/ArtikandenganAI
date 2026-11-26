@@ -9,7 +9,7 @@ struct ProcessView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if let running = model.running { runningCard(running) }
+            if let current = model.currentBook { runningCard(current) }
             else if model.paused, !model.queueList.isEmpty { pausedCard }
             else if !model.isBusy, model.waitingCount > 0 { stalledCard }
             if model.queueList.isEmpty { empty }
@@ -21,7 +21,7 @@ struct ProcessView: View {
         .background(Theme.window)
     }
 
-    private var waiting: [QueueBook] { model.queueList.filter { $0.id != model.runningID } }
+    private var waiting: [QueueBook] { model.queueList.filter { $0.id != model.currentBook?.id } }
 
     private var empty: some View {
         VStack(spacing: 12) {
@@ -58,21 +58,21 @@ struct ProcessView: View {
 
     private func runningCard(_ book: QueueBook) -> some View {
         let preparing = book.stage == .preparing
-        let paused = model.paused
+        let live = model.running?.id == book.id          // false: stopped part way, waiting to go on
+        let paused = model.paused || !live
         let tint = paused ? Theme.amber : Theme.accent
         return CardBox(radius: 16) {
             HStack(alignment: .top, spacing: 22) {
                 CoverView(title: book.title, image: model.queueCovers[book.id], width: 100, height: 144, radius: 6)
                 VStack(alignment: .leading, spacing: 9) {
+                    StageSteps(steps: BookStage.steps(for: book, polishByDefault: model.polishNovels && book.kind == .fiction),
+                               paused: paused)
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(book.title).font(.system(size: 21, weight: .semibold))
                         Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.volumes))")
                             .font(.system(size: 13)).foregroundStyle(Theme.muted)
                     }
-                    Text(preparing ? loc.t("process.preparing") : (paused ? loc.t("process.status.paused")
-                            : (book.polishing ? loc.t("process.status.polishing", max(book.volume, 1)) : loc.t("process.status.translating", max(book.volume, 1)))))
-                        .font(.system(size: 14, weight: .medium)).foregroundStyle(paused ? Theme.warnIcon : Theme.accent)
-                    engineLine
+                    if live { engineLine }
                     if !preparing {
                         HStack(spacing: 5) {
                             ForEach(1...max(book.volumes, 1), id: \.self) { i in
@@ -91,8 +91,13 @@ struct ProcessView: View {
                     HStack(spacing: 8) {
                         Text(etaText(paused: paused)).font(.system(size: 13)).foregroundStyle(Theme.muted)
                         Spacer()
-                        Button(paused ? loc.t("process.resume") : loc.t("process.pause")) { paused ? model.resume() : model.pause() }
-                            .buttonStyle(GhostButtonStyle())
+                        if model.paused {
+                            Button(loc.t("process.resume")) { model.resume() }.buttonStyle(PrimaryButtonStyle(radius: 8))
+                        } else if live {
+                            Button(loc.t("process.pause")) { model.pause() }.buttonStyle(GhostButtonStyle())
+                        } else if !model.isBusy {
+                            Button(loc.t("process.startQueue")) { model.start() }.buttonStyle(PrimaryButtonStyle(radius: 8))
+                        }
                     }.padding(.top, 2)
                 }
             }
@@ -146,6 +151,74 @@ struct ProcessView: View {
     }
 }
 
+/// The way of a book above its title: glossary and style, translation, polish, each with its time.
+struct StageSteps: View {
+    @Environment(Loc.self) private var loc
+    var steps: [BookStage]
+    var paused: Bool
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { row(connected: true) }
+            VStack(alignment: .leading, spacing: 6) { row(connected: false) }
+        }
+        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder private func row(connected: Bool) -> some View {
+        ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
+            chip(step, number: index + 1)
+            if connected, index < steps.count - 1 {
+                Rectangle().fill(step.state == .done ? Theme.stageIdle : Theme.stageTrack).frame(width: 14, height: 2)
+            }
+        }
+    }
+
+    private func chip(_ step: BookStage, number: Int) -> some View {
+        let active = step.state == .active
+        let glowing = active && !paused
+        return HStack(spacing: 7) {
+            Image(systemName: symbol(step.state)).font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(glowing ? Theme.glowLine : (active ? Theme.amber : Theme.stageIdle))
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(number). \(loc.t("stage.\(step.id)"))").font(.system(size: 12.5, weight: active ? .semibold : .medium))
+                Text(note(step)).font(.system(size: 11)).opacity(0.85).monospacedDigit()
+            }
+            .lineLimit(1).fixedSize()
+        }
+        .foregroundStyle(glowing ? Theme.glowText : (active ? Theme.warnText : Theme.faint))
+        .padding(.horizontal, 11).padding(.vertical, 6)
+        .background(glowing ? Theme.glowBg : (active ? Theme.warnBg : (step.state == .done ? Theme.neutralBg : .clear)),
+                    in: Capsule())
+        .overlay(Capsule().strokeBorder(glowing ? Theme.glowLine : (step.state == .done ? .clear : Theme.stageTrack),
+                                        style: StrokeStyle(lineWidth: glowing ? 1.5 : 1,
+                                                           dash: step.state == .skipped ? [4, 3] : [])))
+        .shadow(color: glowing ? Theme.glowLine.opacity(0.55) : .clear, radius: 7)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func symbol(_ state: BookStage.State) -> String {
+        switch state {
+        case .done: return "checkmark.circle.fill"
+        case .active: return paused ? "pause.circle.fill" : "largecircle.fill.circle"
+        case .pending: return "circle"
+        case .skipped: return "minus.circle"
+        }
+    }
+
+    private func note(_ step: BookStage) -> String {
+        if step.state == .skipped { return loc.t("stage.skipped") }
+        let spent = step.seconds > 0 ? loc.duration(step.seconds) : ""
+        let word: String
+        switch step.state {
+        case .done: word = loc.t("stage.done")
+        case .active: word = loc.t(paused ? "stage.paused" : "stage.running")
+        default: word = loc.t("stage.waiting")
+        }
+        return spent.isEmpty ? word : "\(word) · \(spent)"
+    }
+}
+
 struct ProgressBar: View {
     var value: Double
     var tint: Color
@@ -177,11 +250,11 @@ private struct QueueRow: View {
                 Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.volumes)) · \(loc.t("input.about", loc.minutes(book.estimatedMinutes)))")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
                 if failed, !book.error.isEmpty {
-                    Text(book.error).font(.system(size: 11)).foregroundStyle(.red).lineLimit(2)
+                    Text(book.error).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(2)
                 }
             }
             Spacer(minLength: 6)
-            if failed { Pill(text: loc.t("process.failed"), bg: Color.red.opacity(0.12), fg: .red, size: 12) }
+            if failed { Pill(text: loc.t("process.failed"), bg: Theme.dangerBg, fg: Theme.danger, size: 12) }
             else if review { Pill(text: loc.t("process.reviewChip"), bg: Theme.warnBg, fg: Theme.warnText, size: 12) }
             else if book.stage == .preparing { Pill(text: loc.t("process.preparingChip"), bg: Theme.warnBg, fg: Theme.warnText, size: 12) }
             else { Pill(text: loc.t("process.waitTurn"), bg: Theme.neutralBg, fg: Theme.queueText, size: 12) }

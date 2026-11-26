@@ -236,6 +236,14 @@ final class AppModel {
     /// The Progress queue: started books other than the one that runs now are waiting.
     var queueList: [QueueBook] { books.filter { $0.isQueued } }
     var running: QueueBook? { books.first { $0.id == runningID } }
+
+    /// The book whose progress the Progress screen shows: the running one, else the one that
+    /// was stopped part way (paused, or the app was closed) and goes on from there.
+    var currentBook: QueueBook? {
+        running ?? books.first {
+            [.approved, .queued].contains($0.stage) && $0.workdir != nil && ($0.pct > 0 || !$0.times.isEmpty)
+        }
+    }
     var isBusy: Bool { runningID != nil }
     var hasActiveEngine: Bool { engines.contains { $0.active } }
     var waitingCount: Int { books.filter { [.queued, .approved].contains($0.stage) }.count }
@@ -582,8 +590,22 @@ final class AppModel {
         self.status = status
         update(id) {
             if $0.stage == .translating {
-                $0.volume = status.volume; $0.pct = status.pct; $0.volumes = max(status.volumes, $0.volumes)
-                $0.polishing = status.phase == "refine"
+                // a run that is still preparing says volume 0: keep what a resumed book had
+                if status.volume > 0 {
+                    let polishing = status.phase == "refine"
+                    // a resumed run says 0 before it has counted what is already done: keep the saved figure
+                    if status.pct > 0 || status.volume != $0.volume || polishing != $0.polishing { $0.pct = status.pct }
+                    $0.volume = status.volume
+                    $0.polishing = polishing
+                    $0.polishPlanned = status.polish
+                }
+                $0.volumes = max(status.volumes, $0.volumes)
+            }
+            if $0.stage == .translating || $0.stage == .preparing {
+                if let step = status.stage, !step.isEmpty, status.volume > 0 || $0.pct == 0 { $0.step = step }
+                for (stage, seconds) in status.times ?? [:] where status.volume > 0 || stage == "prepare" {
+                    $0.times[stage] = seconds
+                }
             }
         }
         if let running = book(id), let folder = running.workdir ?? Optional(status.book), status.volume > 0 {
@@ -775,6 +797,37 @@ final class AppModel {
         order.insert(name, at: order.firstIndex(of: target) ?? order.count)
         engineOrder = order
         refreshEngines(force: false, reorder: true)
+    }
+
+    // MARK: - Deleting a book
+
+    /// A book that is in the queue (waiting, stopped or running) cannot be deleted under its feet.
+    func canDelete(_ folder: String) -> Bool { !books.contains { $0.workdir == folder } }
+
+    func deletionPlan(_ folder: String) -> DeletionPlan {
+        DeletionPlan(folder: env.booksDir.appendingPathComponent(folder),
+                     others: library.books.filter { $0.folder != folder }.map { env.booksDir.appendingPathComponent($0.folder) })
+    }
+
+    /// Moves the book's folder, with everything the app knows about it, to the Trash.
+    /// Returns nil when it went, else why not.
+    func deleteBook(_ folder: String) -> String? {
+        guard canDelete(folder) else { return Loc.shared.t("delete.queued") }
+        let url = env.booksDir.appendingPathComponent(folder)
+        guard url.deletingLastPathComponent().standardizedFileURL == env.booksDir.standardizedFileURL,
+              FileManager.default.fileExists(atPath: url.appendingPathComponent("book.json").path) else {
+            return Loc.shared.t("delete.notABook")
+        }
+        do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch { return error.localizedDescription }
+        verified.remove(folder)
+        let index = env.booksDir.appendingPathComponent("INDEX.md")
+        if let text = try? String(contentsOf: index, encoding: .utf8) {
+            let kept = text.components(separatedBy: "\n").filter { !$0.contains("](\(folder)/") }
+            try? kept.joined(separator: "\n").write(to: index, atomically: true, encoding: .utf8)
+        }
+        library.dropCover(folder: folder)
+        library.reload(env: env, force: true)
+        return nil
     }
 
     // MARK: - Translation log

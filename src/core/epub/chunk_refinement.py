@@ -17,6 +17,7 @@ from src.core.progress import ProgressReporter
 from src.prompts.prompts import PromptPair
 
 from .chunk_fallback import keep_edge_whitespace, validate_placeholders
+from ..refine import chunk_cache
 from .engine_log import report_error
 from .placeholder_renumberer import globalize_placeholders, localize_placeholders
 from ..context_optimizer import AdaptiveContextManager
@@ -174,11 +175,21 @@ class _ChunkRefiner:
         refined_global = globalize_placeholders(refined_text, global_indices, self.placeholder_format)
         if log_callback:
             log_callback("epub_chunk_refined", f"Chunk {idx + 1}/{self.total_chunks} refined successfully")
-        return keep_edge_whitespace(translated_text, refined_global)
+        refined = keep_edge_whitespace(translated_text, refined_global)
+        chunk_cache.put(self._cache_key(translated_text), refined)
+        return refined
+
+    def _cache_key(self, translated_text: str) -> str:
+        instructions = (self.prompt_options or {}).get('refinement_instructions', '')
+        return chunk_cache.key(self.target_language, instructions or '', translated_text)
 
     async def refine(self, idx: int, translated_text: str, chunk_dict: Dict) -> str:
         """Refine one chunk; the draft comes back on any failure."""
         from src.prompts.prompts import generate_post_processing_prompt
+
+        done = chunk_cache.get(self._cache_key(translated_text))
+        if done is not None:        # polished by a run that was stopped afterwards
+            return done
 
         refinement_instructions = (self.prompt_options.get('refinement_instructions', '')
                                    if self.prompt_options else '')

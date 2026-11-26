@@ -165,6 +165,21 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--inspect FILE` | Print what the app shows for a book (title, author, volumes, fiction or not, estimated time), as JSON, and exit |
 | `--watch` | Worker mode: keep translating whatever lands in the inbox (cloud) |
 
+## Stopping and continuing
+
+A run can be stopped at any moment (pause, usage limit, closed app) and continued by running it
+again: the translation resumes from its checkpoint, the glossary build keeps the answers it already
+had, and the polish pass takes the chunks it already polished from a file beside the output instead
+of asking again. The time spent in each stage is kept in `<book>/stages.json`.
+
+## Series
+
+A book added to the library starts from the glossary and the writing style of the books of the same
+series that are already there in the same target language, whatever the order the volumes are added
+in. The series is read from the book's metadata, else from its title or file name ("Vol. 2",
+"Book 3", "Jilid 4", "(Saga #2)"), and the author must match. Names the series already decided win
+over new proposals. Nothing is stored apart from the books: a deleted book no longer passes anything on.
+
 ## Models
 
 The app chooses the models, not the CLI's own settings. The list is `src/core/agent/models.py`;
@@ -206,7 +221,8 @@ The app drives `translate_book.py` and reads files; it needs no other interface:
   source language, word count and estimated minutes, for the Masukkan card. `--fiction` /
   `--non-fiction` overrides the recognition when the user flips it.
 - `books/status.json`: what runs now (`state` running or idle, book, volume, `pct`, `engine` that
-  answered last), updated every couple of seconds.
+  answered last, `stage` prepare, translate or refine, `times` in seconds per stage, `polish`),
+  updated every few seconds.
 - `books/<book>/book.json`, `style.json`, `glossary.json`, `qa_report.md`: the book's state, style
   options and recommendation, locked names and the quality audit.
 - Order of the queue is the app's: it starts one book after another with `-i`.

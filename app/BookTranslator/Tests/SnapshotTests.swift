@@ -35,6 +35,14 @@ final class SnapshotTests: XCTestCase {
         try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
     }
 
+    private func mockPlan() -> DeletionPlan {
+        var plan = DeletionPlan(folder: FileManager.default.temporaryDirectory.appendingPathComponent("bt-none"))
+        plan.translations = ["A Study in Scarlet (Indonesian).epub"]
+        plan.hasSource = true; plan.terms = 44; plan.hasStyle = true; plan.hasProgress = true
+        plan.series = "Sherlock Holmes"; plan.bytes = 2_400_000
+        return plan
+    }
+
     private func model() -> AppModel {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bt-snap-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -59,7 +67,8 @@ final class SnapshotTests: XCTestCase {
                            lib("Dracula", "Bram Stoker", fiction: true), lib("Meditations", "Marcus Aurelius", fiction: false),
                            lib("On the Origin of Species", "Charles Darwin", fiction: false), lib("Walden", "Henry David Thoreau", fiction: false, missing: true)]
         m.mockLibrary = mockLibrary
-        run.volume = 3; run.pct = 62
+        run.volume = 3; run.pct = 62; run.step = "translate"; run.polishPlanned = true
+        run.times = ["prepare": 194, "translate": 1530]
         m.books = [run, b("The Silver Heron", "Mara Ellison", .fiction, 4, 180, .ready),
                    b("The Moonlit Archive", "Kenji Aoki", .fiction, 5, 360, .needsReview),
                    b("The Ledger of Small Things", "Tom Hale", .nonfiction, 1, 35, .uploaded),
@@ -91,6 +100,18 @@ final class SnapshotTests: XCTestCase {
         try render(env(LibraryScreen(openFolder: .constant(nil)), m), name: "3-library-dark", size: size, dark: true)
         try render(env(SettingsView(), m), name: "4-settings-dark", size: CGSize(width: 700, height: 900), dark: true)
         Loc.shared.language = .id
+        try render(env(ProcessView {}, m), name: "D-process-running-id", size: size)
+        try render(env(ProcessView {}, m), name: "D-process-running-dark-id", size: size, dark: true)
+        let stopped = model()
+        stopped.runningID = nil; stopped.paused = true
+        var half = stopped.books[0]
+        half.stage = .approved; half.workdir = "hollow"; half.step = "refine"; half.polishing = true; half.pct = 41
+        half.times = ["prepare": 194, "translate": 4210, "refine": 905]
+        stopped.books[0] = half
+        try render(env(ProcessView {}, stopped), name: "D-process-paused-id", size: size)
+        try render(env(ProcessView {}, stopped), name: "D-process-narrow-id", size: CGSize(width: 940, height: 640))
+        let target = mockPlan()
+        try render(env(DeleteBookSheet(book: m.mockLibrary[0], plan: target, close: { _ in }), m), name: "D-delete-id", size: CGSize(width: 480, height: 600))
         try render(env(SettingsView(height: 1700), m), name: "4-settings-full-id", size: CGSize(width: 700, height: 1700))
         Loc.shared.language = .en
         try render(env(ProcessView {}, m), name: "2-process", size: size)

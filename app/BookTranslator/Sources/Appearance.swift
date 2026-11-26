@@ -80,7 +80,7 @@ struct WindowConfigurator: NSViewRepresentable {
             super.viewDidMoveToWindow()
             guard let window else { return }
             window.backgroundColor = NSColor(name: nil) { a in
-                a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(hex: 0x1C1C1E) : NSColor(hex: 0xF5F5F7)
+                a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(hex: 0x1F1B18) : NSColor(hex: 0xF9F4EE)
             }
             if let path = ProcessInfo.processInfo.environment["BT_DUMP_WINDOW"] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak window] in

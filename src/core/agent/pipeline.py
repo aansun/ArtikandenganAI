@@ -30,6 +30,7 @@ import argparse
 import asyncio
 import json
 import logging
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -41,8 +42,10 @@ from src.core.agent.classifier import BookProfile, classify_book
 from src.core.agent.epub_metadata import (
     GENRE_SUBJECTS_ID, audit_metadata, finalize_metadata, read_metadata, strip_volume_suffix)
 from src.core.agent import engines as engines_mod
-from src.core.agent.glossary_builder import build_glossary
+from src.core.agent.glossary_builder import build_glossary, write_glossary
 from src.core.agent import qa as qa_mod
+from src.core.agent import series as series_mod
+from src.core.agent import stages as stages_mod
 from src.core.agent import style as style_mod
 from src.core.agent.intake import boilerplate_documents, clean_volume, remove_documents
 from src.core.agent.routing import (
@@ -153,6 +156,12 @@ class BookAgent:
         self.refine_on = False
         self._chunk_stats: Dict[str, Any] = {}
         self._resumed = False
+        self._live: tuple = (None, 0, "translate")      # volume, percentage, pass: for status.json
+        self._status_lock = threading.Lock()
+        self.clock = stages_mod.StageClock(self.workdir / "stages.json", phase=activity.phase,
+                                           on_tick=self._tick_status)
+        self._related: Optional[List[Path]] = None
+        self._series: Optional[series_mod.Series] = None
         self._qa_results: Dict[int, list] = {}
         self.engines: List[engines_mod.Engine] = []
         self._engines_ready = False
@@ -190,6 +199,7 @@ class BookAgent:
             "is_fiction": profile.is_fiction if profile else None,
             "classified_by": profile.method if profile else "",
             "source": self.state.source,
+            "series": self._series.name if self._series else "",
             "translate_provider": self.state.provider,
             "model": self.state.model,
             "backup_model": self.state.backup_model,
@@ -284,23 +294,47 @@ class BookAgent:
         self._save_state()
         return profile
 
+    def _series_books(self, volumes: List[Volume]) -> List[Path]:
+        """The books of this one's series already in the library (found once per run)."""
+        if self._related is None:
+            source = Path(self.state.source) if self.state.source else volumes[0].path
+            self._series = series_mod.series_of(source)
+            self._related = (series_mod.related_books(
+                self.root, self.workdir, self._series, self.opt.target_language)
+                if self._series else [])
+            if self._related:
+                self.say(f"Series '{self._series.name}': sharing names and style with "
+                         + ", ".join(f.name for f in self._related))
+        return self._related
+
     async def _glossary(self, profile: BookProfile, volumes: List[Volume]) -> Optional[Path]:
         if self.opt.glossary_path:
             self.say(f"Glossary: using {self.opt.glossary_path}")
             return Path(self.opt.glossary_path)
-        if not profile.is_fiction:
-            self.say("Glossary: skipped (not fiction)")
-            return None
+        related = self._series_books(volumes)
         path = self.workdir / "glossary.json"
         if path.exists():
             self.say(f"Glossary: reusing {path} (edit it freely, it is read as is)")
             return path
-        self.say(f"Glossary: building from {len(volumes)} volume(s)")
-        activity.set_phase("glossary")
-        count = await build_glossary(
-            [v.path for v in volumes], profile.source_language, self.opt.target_language,
-            self._chain(GLOSSARY_MODEL) if self.auto else self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL),
-            path, progress=self.say)
+        inherited = series_mod.inherited_terms(related)
+        if not profile.is_fiction and not inherited:
+            self.say("Glossary: skipped (not fiction)")
+            return None
+        count = 0
+        if profile.is_fiction:
+            self.say(f"Glossary: building from {len(volumes)} volume(s)")
+            activity.set_phase("glossary")
+            count = await build_glossary(
+                [v.path for v in volumes], profile.source_language, self.opt.target_language,
+                self._chain(GLOSSARY_MODEL) if self.auto else self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL),
+                path, progress=self.say)
+        if inherited:       # what the series already decided wins over this book's proposals
+            own = json.loads(path.read_text(encoding="utf-8"))["terms"] if count else []
+            known = {t["source"].casefold() for t in inherited}
+            added = [t for t in own if t["source"].casefold() not in known]
+            write_glossary(path, inherited + added, profile.source_language, self.opt.target_language)
+            count = len(inherited) + len(added)
+            self.say(f"Glossary: {len(inherited)} terms of the series, {len(added)} new")
         if not count:
             self.say("Glossary: no terms found, translating without one")
             return None
@@ -328,6 +362,9 @@ class BookAgent:
 
         style_provider = (self._chain(GLOSSARY_MODEL) if self.auto
                           else self._provider(PROVIDER_CLAUDE, GLOSSARY_MODEL))
+        shared = series_mod.inherit_style(self._series_books(volumes), self.workdir, self.opt.style)
+        if shared:
+            self.say(f"Style: the same as {shared.name} of this series")
         choice_path = self.workdir / "style.json"
         known = {}
         if choice_path.exists():
@@ -432,12 +469,21 @@ class BookAgent:
                     phase = (manager.get_job(job_id) or {}).get("job_phase") or "translate"
                 except Exception:
                     phase = "translate"
-                self._write_status("running", vol, int(100 * (stats.get("completed_chunks", 0) or 0) / total), phase)
+                self._live = (vol, int(100 * (stats.get("completed_chunks", 0) or 0) / total), phase)
+                self._write_status("running", *self._live)
 
-        self._write_status("running", vol, 0)
         self._chunk_stats, self._resumed = {}, resume
-        result = run_cli_job(job, cli_logger, translation_id=job_id,
-                             checkpoint_manager=manager, is_resume=resume, on_stats=on_stats)
+        polishing = bool(resume and self.refine_on
+                         and (manager.get_job(job_id) or {}).get("job_phase") == "refine")
+        activity.set_phase("refine" if polishing else "translate")
+        self._live = (vol, 0, "refine" if polishing else "translate")
+        self.clock.start(stages_mod.REFINE if polishing else stages_mod.TRANSLATE, vol.index)
+        try:
+            self._write_status("running", *self._live)
+            result = run_cli_job(job, cli_logger, translation_id=job_id,
+                                 checkpoint_manager=manager, is_resume=resume, on_stats=on_stats)
+        finally:
+            self.clock.stop()
         vol.error = result.error or ""
         return result.status
 
@@ -543,6 +589,14 @@ class BookAgent:
                 for v in self.state.volumes if v.index in self._qa_results]
         (self.workdir / "qa_report.md").write_text(qa_mod.report_markdown(title, rows), encoding="utf-8")
 
+    def _tick_status(self) -> None:
+        """Keep the times in status.json moving while a long request is out."""
+        vol, pct, phase = self._live
+        if self.clock.stage == stages_mod.REFINE and phase != "refine":
+            pct, phase = 0, "refine"        # the polish started and has not reported yet
+            self._live = (vol, pct, phase)
+        self._write_status("running", vol, pct, phase)
+
     def _write_status(self, state: str, vol: Optional[VolumeState] = None, pct: int = 0,
                       phase: str = "translate") -> None:
         """books/status.json: what is running now, for the app (written atomically)."""
@@ -552,14 +606,17 @@ class BookAgent:
         title = ((self.profile.title if self.profile else "") or self.workdir.name)
         data = {"state": state, "updated_at": _now(), "book": self.workdir.name, "title": title,
                 "volume": vol.index if vol else 0, "volumes": len(self.state.volumes), "pct": pct,
-                "phase": phase, "engine": engine}
-        try:
-            self.root.mkdir(parents=True, exist_ok=True)
-            tmp = self.root / "status.json.tmp"
-            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(self.root / "status.json")
-        except OSError:
-            pass
+                "phase": phase, "engine": engine,
+                "stage": self.clock.stage if state == "running" else "",
+                "times": self.clock.seconds(vol.index if vol else 0), "polish": self.refine_on}
+        with self._status_lock:
+            try:
+                self.root.mkdir(parents=True, exist_ok=True)
+                tmp = self.root / "status.json.tmp"
+                tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(self.root / "status.json")
+            except OSError:
+                pass
 
     def _finish_volume(self, vol: VolumeState, profile: BookProfile, cli_logger=None) -> None:
         """Complete the metadata of a translated EPUB and record what is still missing."""
@@ -631,6 +688,10 @@ class BookAgent:
                          "claude, codex, agy or opencode, then try again. Found: "
                          + "; ".join(f"{e.label}: {e.reason}" for e in self.engines))
                 return 2
+        if not self.opt.refresh_metadata:
+            self._live = (None, 0, "translate")
+            self.clock.start(stages_mod.PREPARE)
+            self._write_status("running")
         self.profile = asyncio.run(self._classify(volumes))
         profile = self.profile
         if self.opt.redo:
@@ -667,7 +728,9 @@ class BookAgent:
         self.refine_on = profile.is_fiction if self.opt.refine is None else self.opt.refine
         asyncio.run(self._style_and_calibrate(profile, volumes, glossary, choice))
         self._save_state()
+        self.clock.stop()
         if self.opt.glossary_only:
+            self._write_status("idle")
             self.say("Stopped after the preparation (--glossary-only). Review glossary.json, "
                      "style.md and calibration.md, edit them, then run again.")
             return 0
@@ -690,6 +753,7 @@ class BookAgent:
             base = vol.job_id.split("_r")[0] or f"agent_{slugify(self.workdir.name, 'book')[:24]}_v{vol.index:02d}"
             vol.job_id = f"{base}_r{int(time.time())}"      # a new job id: old checkpoints are ignored
             vol.status, vol.error, vol.qa_flags, vol.fixed_variants = STATUS_PENDING, "", 0, {}
+            self.clock.reset(vol.index)
             self.say(f"Volume {vol.index}: will be translated again (the old file is in previous/)")
         self._save_state()
 

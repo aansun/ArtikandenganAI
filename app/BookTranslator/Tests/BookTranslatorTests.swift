@@ -87,7 +87,7 @@ final class ModelDecodingTests: XCTestCase {
 @MainActor
 final class QueueTests: XCTestCase {
     /// These tests run in the app's own defaults: put back every setting they change.
-    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode"]
+    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode", "verifiedBooks"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -211,6 +211,77 @@ final class QueueTests: XCTestCase {
         XCTAssertTrue(m.reviewsFirst(m.books[2]))
         XCTAssertTrue(m.paused)
         XCTAssertFalse(m.baseArguments(m.books[0]).contains("--style"))   // the engine takes the recommended one
+    }
+
+    func testStagesShowWhereABookStandsWithTheTimeSpent() {
+        var b = book("A", stage: .translating)
+        b.workdir = "a"
+        b.step = "translate"; b.pct = 40; b.times = ["prepare": 75, "translate": 300]
+        var steps = BookStage.steps(for: b, polishByDefault: true)
+        XCTAssertEqual(steps.map(\.state), [.done, .active, .pending])
+        XCTAssertEqual(steps.map(\.seconds), [75, 300, 0])
+        b.step = "refine"
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: false).map(\.state), [.done, .done, .active])
+        b.step = "translate"; b.polishPlanned = false          // the engine says this run does not polish
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: true).map(\.state), [.done, .active, .skipped])
+        b = book("B", stage: .preparing)
+        steps = BookStage.steps(for: b, polishByDefault: true)
+        XCTAssertEqual(steps.map(\.state), [.active, .pending, .pending])
+        b.stage = .approved; b.step = "prepare"; b.workdir = "b"      // prepared, not translating yet
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: true).map(\.state), [.done, .pending, .pending])
+    }
+
+    func testAStoppedBookKeepsItsProgressAcrossARestart() throws {
+        let m = model()
+        var b = book("A", stage: .translating)
+        b.workdir = "A"; b.step = "refine"; b.pct = 35; b.polishing = true; b.times = ["prepare": 60, "translate": 900, "refine": 200]
+        m.books = [book("Q", stage: .queued), b]
+        AppModel.flushQueueWrites()
+        let again = AppModel(env: m.env)
+        XCTAssertEqual(again.currentBook?.title, "A")          // shown on Progress although nothing runs
+        XCTAssertEqual(again.currentBook?.stage, .approved)
+        XCTAssertEqual(again.currentBook?.pct, 35)
+        XCTAssertEqual(again.currentBook?.times["translate"], 900)
+        XCTAssertEqual(again.currentBook?.step, "refine")
+    }
+
+    func testDeletingABookListsWhatGoesAndMovesItToTheTrash() throws {
+        let m = model()
+        let fm = FileManager.default
+        func make(_ name: String, series: String) throws -> URL {
+            let folder = m.env.booksDir.appendingPathComponent(name)
+            for sub in ["source", "translation", "previous"] {
+                try fm.createDirectory(at: folder.appendingPathComponent(sub), withIntermediateDirectories: true)
+            }
+            try Data("x".utf8).write(to: folder.appendingPathComponent("source/a.epub"))
+            try Data("y".utf8).write(to: folder.appendingPathComponent("translation/a (Indonesian).epub"))
+            try Data(#"{"title":"A","series":"\#(series)","volumes":[]}"#.utf8).write(to: folder.appendingPathComponent("book.json"))
+            try Data(#"{"terms":[{"source":"a"},{"source":"b"}]}"#.utf8).write(to: folder.appendingPathComponent("glossary.json"))
+            try Data("s".utf8).write(to: folder.appendingPathComponent("style.md"))
+            return folder
+        }
+        let one = try make("bt-delete-\(UUID().uuidString)", series: "Saga")
+        let two = try make("two", series: "saga")
+        let plan = DeletionPlan(folder: one, others: [two])
+        XCTAssertEqual(plan.translations, ["a (Indonesian).epub"])
+        XCTAssertEqual(plan.terms, 2)
+        XCTAssertTrue(plan.hasSource && plan.hasStyle)
+        XCTAssertEqual(plan.series, "Saga")
+        XCTAssertEqual(DeletionPlan(folder: one).series, "")
+
+        var queued = book("Q", stage: .queued)
+        queued.workdir = one.lastPathComponent
+        m.books = [queued]
+        XCTAssertNotNil(m.deleteBook(one.lastPathComponent))          // not while it is in the queue
+        XCTAssertTrue(fm.fileExists(atPath: one.path))
+        m.books = []
+        XCTAssertNotNil(m.deleteBook("../outside"))
+        XCTAssertNotNil(m.deleteBook("inbox"))
+        XCTAssertNil(m.deleteBook(one.lastPathComponent))
+        XCTAssertFalse(fm.fileExists(atPath: one.path))
+        XCTAssertTrue(fm.fileExists(atPath: two.path))
+        // the test's own folder must not be left in the user's Trash
+        try? fm.removeItem(at: fm.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(one.lastPathComponent)"))
     }
 
     func testUnreadyAndKindToggle() {

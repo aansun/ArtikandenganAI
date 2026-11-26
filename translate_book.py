@@ -227,7 +227,8 @@ def _selfcheck() -> int:
              "src.core.llm.providers.claude_cli", "src.core.llm.providers.codex_cli",
              "src.core.llm.providers.agy", "src.core.llm.providers.opencode_cli",
              "src.core.llm.providers.chain", "src.core.agent.models",
-             "src.core.agent.log_report", "src.core.llm.activity"]
+             "src.core.agent.log_report", "src.core.llm.activity", "src.core.agent.series",
+             "src.core.agent.stages", "src.core.refine.chunk_cache"]
     missing = []
     for name in names:
         try:
