@@ -1,5 +1,6 @@
 """Whole agent runs against fake `agy` and `claude` binaries (no network)."""
 import json
+import sys
 import zipfile
 from pathlib import Path
 
@@ -17,6 +18,8 @@ AGY_FIRST = ["--translate-provider", "agy-claude"]
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
+    if sys.platform == "win32":     # CreateProcess cannot start a "#!" script (WinError 193)
+        pytest.skip("the fake command line tools are POSIX scripts")
     reset_breakers()
     monkeypatch.chdir(tmp_path)  # checkpoint DB and uploads are cwd-relative
     monkeypatch.setenv("CLAUDE_CLI_PATH", str(HERE / "fake_claude.py"))
