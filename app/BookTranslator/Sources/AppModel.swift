@@ -663,9 +663,15 @@ final class AppModel {
 
     /// The saved queue, with books whose file is gone dropped and interrupted work put back in line. Reads the disk.
     nonisolated static func readQueue(file: URL, inbox: URL) -> [QueueBook] {
-        guard let data = try? Data(contentsOf: file),
-              var saved = try? JSONDecoder().decode([QueueBook].self, from: data) else { return [] }
+        guard let data = try? Data(contentsOf: file) else { return [] }
         let fm = FileManager.default
+        guard var saved = try? JSONDecoder().decode([QueueBook].self, from: data) else {
+            // The next change to the queue overwrites this file: keep what could not be read.
+            let copy = file.deletingLastPathComponent().appendingPathComponent(".app-queue.unreadable.json")
+            try? fm.removeItem(at: copy)
+            try? fm.copyItem(at: file, to: copy)
+            return []
+        }
         saved = saved.filter { fm.fileExists(atPath: inbox.appendingPathComponent($0.fileName).path) || $0.workdir != nil }
         for index in saved.indices {
             switch saved[index].stage {

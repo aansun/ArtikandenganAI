@@ -70,6 +70,33 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var isQueued: Bool { [.queued, .preparing, .needsReview, .approved, .translating, .failed].contains(stage) }
 }
 
+extension QueueBook {
+    /// The queue file outlives app versions: a field it does not have yet takes its default.
+    /// (The synthesized decoder demands every non-optional field, so one added field lost the whole queue.)
+    init(from decoder: Decoder) throws {
+        let saved = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(fileName: try saved.decode(String.self, forKey: .fileName),
+                  title: try saved.decode(String.self, forKey: .title))
+        func read<T: Decodable>(_ key: CodingKeys, or fallback: T) throws -> T {
+            try saved.decodeIfPresent(T.self, forKey: key) ?? fallback
+        }
+        id = try read(.id, or: id)
+        author = try read(.author, or: author)
+        volumes = try read(.volumes, or: volumes)
+        kind = try read(.kind, or: kind)
+        estimatedMinutes = try read(.estimatedMinutes, or: estimatedMinutes)
+        stage = try read(.stage, or: .uploaded)
+        reviewFirst = try read(.reviewFirst, or: reviewFirst)
+        style = try read(.style, or: style)
+        targetLanguage = try saved.decodeIfPresent(String.self, forKey: .targetLanguage)
+        workdir = try saved.decodeIfPresent(String.self, forKey: .workdir)
+        volume = try read(.volume, or: volume)
+        pct = try read(.pct, or: pct)
+        polishing = try read(.polishing, or: polishing)
+        error = try read(.error, or: error)
+    }
+}
+
 /// What the engine reports in books/status.json while it works.
 struct EngineStatus: Codable, Equatable {
     var state: String

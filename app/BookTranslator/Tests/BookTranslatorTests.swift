@@ -147,6 +147,34 @@ final class QueueTests: XCTestCase {
         XCTAssertEqual(AppModel.clampParallel(9), 3)
     }
 
+    /// A queue saved by 1.0.3 has no "polishing" field: 1.0.4 showed an empty queue after the update.
+    func testQueueSavedByAnOlderVersionStillLoads() throws {
+        let m = model()
+        try FileManager.default.createDirectory(at: m.env.booksDir, withIntermediateDirectories: true)
+        let old = #"""
+        [{"id":"5F1AC97F-7385-4F75-86D0-238CD088A0E9","fileName":"a.epub","title":"A","author":"X","volumes":1,
+          "kind":"fiksi","estimatedMinutes":9,"stage":"approved","reviewFirst":true,"style":"formal",
+          "workdir":"A_X","volume":1,"pct":40,"error":""},
+         {"fileName":"b.epub","title":"B","workdir":"B"}]
+        """#
+        try Data(old.utf8).write(to: m.env.queueFile)
+        let books = AppModel.readQueue(file: m.env.queueFile, inbox: m.env.inbox)
+        XCTAssertEqual(books.map(\.title), ["A", "B"])
+        XCTAssertEqual(books.first?.pct, 40)
+        XCTAssertEqual(books.first?.stage, .approved)
+        XCTAssertEqual(books.first?.polishing, false)
+        XCTAssertEqual(books.last?.stage, .uploaded)
+    }
+
+    func testAnUnreadableQueueIsKeptAside() throws {
+        let m = model()
+        try FileManager.default.createDirectory(at: m.env.booksDir, withIntermediateDirectories: true)
+        try Data("not a queue".utf8).write(to: m.env.queueFile)
+        XCTAssertTrue(AppModel.readQueue(file: m.env.queueFile, inbox: m.env.inbox).isEmpty)
+        let copy = m.env.booksDir.appendingPathComponent(".app-queue.unreadable.json")
+        XCTAssertEqual(try String(contentsOf: copy, encoding: .utf8), "not a queue")
+    }
+
     func testUnreadyAndKindToggle() {
         let m = model()
         m.books = [book("A", stage: .queued)]
