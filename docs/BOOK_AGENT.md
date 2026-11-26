@@ -94,10 +94,11 @@ One run does, for each book:
    - **Boilerplate pages** that are not part of the book are deleted from the translation (spine,
      manifest, table of contents and file), also for a translation made before the cleaning
      existed: `--refresh-metadata` repairs such a book without translating again.
-   - **Name repair:** a capitalised word in the middle of a sentence that is not in the source,
+   - **Name check:** a capitalised word in the middle of a sentence that is not in the source,
      not in the glossary and one or two letters from a locked name ("Lestrada" for "Lestrade") is
-     replaced by the locked name with the engine's literal term-fix (exact whole words, no LLM).
-     Names that are also ordinary words of the source ("Standard") are not hunted.
+     listed in `qa_report.md`. Nothing is replaced: ordinary words of the target language can look
+     like a name ("toko", shop, beside "Tokyo"). Versions up to 1.0.8 did replace them, and could
+     spoil a book that way.
    - **Metadata** is completed and audited (below).
    - **Audit:** every translated document is compared with its source and flagged for length
      (omission or addition), missing numbers, a different number of quotation marks, leftover
@@ -145,7 +146,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `-i PATH` | One book (file or folder of volumes) from anywhere; default: the inbox |
 | `--prepare-only` (`--glossary-only`) | Stop after glossary, style guide and calibration |
 | `--redo` | Translate the volumes again (all, or `--volumes`); old files go to `previous/` |
-| `--refresh-metadata` | No translation: redo metadata, boilerplate deletion, name repair and audit |
+| `--refresh-metadata` | No translation: redo metadata, boilerplate deletion, name check and audit |
 | `--volumes 1-3,5` | Only these volumes |
 | `-tl`, `-sl` | Target language (default Indonesian), source language (default detected) |
 | `--fiction` / `--non-fiction` | Override the classifier |

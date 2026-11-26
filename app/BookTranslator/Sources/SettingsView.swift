@@ -158,6 +158,7 @@ struct SettingsView: View {
             .padding(.horizontal, 24).padding(.vertical, 20)
         }
         .frame(width: 700, height: height)
+        .task { await updater.checkIfStale(Updater.settingsAge) }
         .background(Theme.window)
     }
 
@@ -207,7 +208,7 @@ struct SettingsView: View {
         case .downloading:
             HStack { ProgressView().controlSize(.small); Text(loc.t("settings.installing")).font(.system(size: 13)) }.padding(16)
         case .upToDate:
-            Label(loc.t("settings.upToDate"), systemImage: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Theme.green)
+            Label(loc.t("settings.upToDate", Updater.currentVersion), systemImage: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Theme.green)
                 .padding(.horizontal, 16).padding(.vertical, 10)
         case .failed(let message):
             Text(loc.t("settings.updateFailed", message)).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 10)

@@ -43,7 +43,7 @@ through an API key. NNAI Translator narrows that down to translating whole **boo
 - **Series.** A multi-volume file is split and translated volume by volume. Volumes added one by one, in any
   order, share their names and writing style.
 - **Cleaning and checking.** Licence headers, donation appeals and download-site credits are removed
-  instead of translated, inconsistent names are repaired, and every page is checked against its source.
+  instead of translated, and every page is checked against its source, with doubtful names listed for you.
 - **Metadata and a library.** Check and edit each book's metadata, find it online by ISBN, and browse the
   finished books with their covers.
 - **A native Mac app.** Light and dark theme, menu-bar progress, and the engine built in.

@@ -19,6 +19,22 @@ final class UpdaterTests: XCTestCase {
         XCTAssertNil(Updater.parseRelease(Data(#"{"tag_name":"v2","assets":[]}"#.utf8)))
     }
 
+    func testAnOldAnswerIsAskedAgain() {
+        let now = Date()
+        func needs(_ state: Updater.State, ago: TimeInterval?) -> Bool {
+            Updater.needsCheck(state, lastChecked: ago.map { now.addingTimeInterval(-$0) }, maxAge: 600, now: now)
+        }
+        XCTAssertTrue(needs(.idle, ago: 5))                 // nothing is shown yet
+        XCTAssertFalse(needs(.upToDate, ago: 60))
+        XCTAssertTrue(needs(.upToDate, ago: 3600))          // "latest" must not stay for days
+        XCTAssertTrue(needs(.failed("x"), ago: 3600))
+        XCTAssertTrue(needs(.upToDate, ago: nil))
+        XCTAssertFalse(needs(.checking, ago: 3600))
+        XCTAssertFalse(needs(.downloading, ago: 3600))
+        let found = Updater.Release(version: "9", notes: "", url: URL(string: "https://x/a.zip")!)
+        XCTAssertFalse(needs(.available(found), ago: 3600))
+    }
+
     func testShellQuoting() {
         XCTAssertEqual(Updater.shellQuote("/a b/it's"), "'/a b/it'\\''s'")
     }

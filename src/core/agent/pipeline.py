@@ -163,6 +163,7 @@ class BookAgent:
         self._related: Optional[List[Path]] = None
         self._series: Optional[series_mod.Series] = None
         self._qa_results: Dict[int, list] = {}
+        self._name_notes: Dict[int, dict] = {}
         self.engines: List[engines_mod.Engine] = []
         self._engines_ready = False
 
@@ -537,17 +538,12 @@ class BookAgent:
             logger.info("Cannot read the glossary for the checks (%s)", exc)
             return []
 
-    def _run_term_fix(self, cli_logger, argv: List[str]) -> bool:
-        from translate import build_parser, run_cli_job
-        from src.persistence.checkpoint_manager import CheckpointManager
-        args = build_parser().parse_args(argv + ["--provider", "claude-cli", "--no-color"])
-        job = JobConfig.from_cli_args(args)
-        result = run_cli_job(job, cli_logger, translation_id=f"fix_{int(time.time() * 1000)}",
-                             checkpoint_manager=CheckpointManager(db_path=str(self.workdir / "jobs.db")))
-        return result.status is JobStatus.COMPLETED
+    def _note_names(self, vol: VolumeState, entries: List[Dict[str, str]]) -> None:
+        """List spellings that look like a drifted locked name, for a person to judge.
 
-    def _repair_names(self, vol: VolumeState, entries: List[Dict[str, str]], cli_logger) -> None:
-        """Replace drifted spellings of locked names by the locked form (no LLM)."""
+        The translation is never changed: a word of the target language can look like a name
+        ("toko", shop, beside "Tokyo"), and replacing it everywhere spoils the book.
+        """
         output = Path(vol.output)
         if not entries or not output.exists():
             return
@@ -556,17 +552,13 @@ class BookAgent:
             variants = qa_mod.find_name_variants(
                 " ".join(t for t, _ in source_docs.values()), " ".join(t for t, _ in output_docs.values()),
                 entries)
-            if not variants:
-                return
-            rules = self.workdir / "name_fixes.txt"
-            qa_mod.write_rules(rules, variants)
-            if qa_mod.apply_variant_fixes(output, rules, self.opt.target_language,
-                                          lambda argv: self._run_term_fix(cli_logger, argv)):
-                vol.fixed_variants = {v: c for v, (c, _n) in variants.items()}
-                self.say(f"Volume {vol.index}: repaired name variants: "
-                         + ", ".join(f"{v} -> {c} (x{n})" for v, (c, n) in variants.items()))
-        except Exception as exc:  # a repair is an improvement, never a reason to lose the volume
-            logger.warning("Name repair of volume %d failed: %s", vol.index, exc)
+        except Exception as exc:  # a check is never a reason to lose the volume
+            logger.warning("Name check of volume %d failed: %s", vol.index, exc)
+            return
+        self._name_notes[vol.index] = variants
+        if variants:
+            self.say(f"Volume {vol.index}: {len(variants)} spelling(s) look like a locked name, "
+                     "nothing changed, see qa_report.md")
 
     def _audit(self, vol: VolumeState, entries: List[Dict[str, str]]) -> None:
         output = Path(vol.output)
@@ -585,7 +577,7 @@ class BookAgent:
         if not self._qa_results:
             return
         title = (self.profile.title if self.profile else "") or self.workdir.name
-        rows = [(v.label, self._qa_results[v.index], v.fixed_variants)
+        rows = [(v.label, self._qa_results[v.index], self._name_notes.get(v.index, {}))
                 for v in self.state.volumes if v.index in self._qa_results]
         (self.workdir / "qa_report.md").write_text(qa_mod.report_markdown(title, rows), encoding="utf-8")
 
@@ -626,8 +618,7 @@ class BookAgent:
             return
         self._drop_boilerplate(vol)
         entries = self._glossary_entries()
-        if cli_logger is not None:
-            self._repair_names(vol, entries, cli_logger)
+        self._note_names(vol, entries)
         if output.suffix.lower() != ".epub":
             self._audit(vol, entries)
             return
@@ -809,7 +800,7 @@ class BookAgent:
             chunks_retried=stats.get("successful_after_retry"),
             placeholder_errors=stats.get("placeholder_errors"),
             qa_flags=vol.qa_flags if done else None,
-            names_fixed=len(vol.fixed_variants) if done else None,
+            names_suspected=len(self._name_notes.get(vol.index, {})) if done else None,
             metadata_missing=len(vol.metadata_missing) if done else None)
 
     def _report(self, seconds: float) -> int:

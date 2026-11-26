@@ -62,22 +62,29 @@ def test_pipeline_never_sends_boilerplate_to_the_model(env):  # noqa: F811
         assert not [n for n in z.namelist() if "gblicense" in n or "gbhead" in n]
 
 
-def test_a_drifted_name_is_repaired_and_reported(env, monkeypatch):  # noqa: F811
+def test_a_drifted_name_is_reported_and_the_text_left_alone(env, monkeypatch):  # noqa: F811
     monkeypatch.setenv("FAKE_NAME_DRIFT", "1")
     upload(env, volumes=2, chapters=1)
     assert translate_book.main(["--no-refine"]) == 0
     info = json.loads((book_dir(env) / "book.json").read_text())
-    assert all(v["fixed_variants"] == {"Aldrik": "Aldric"} for v in info["volumes"])
+    assert all(v["fixed_variants"] == {} for v in info["volumes"])
     for output in (book_dir(env) / "translation").glob("*.epub"):
         with zipfile.ZipFile(output) as z:
             body = " ".join(z.read(n).decode("utf-8", "ignore")
                             for n in z.namelist() if n.endswith(".xhtml"))
-        assert "Aldrik" not in body and "Aldric" in body
+        assert "Aldrik" in body                      # the translation is as the model wrote it
     report = (book_dir(env) / "qa_report.md").read_text()
-    assert "Name variants repaired: Aldrik -> Aldric" in report
-    assert not list((book_dir(env) / "translation").glob("*.md"))        # no stray engine reports
+    assert "nothing was changed" in report and "Aldrik (like Aldric" in report
     assert sorted(p.name for p in (book_dir(env) / "translation").iterdir()
                   if p.suffix != ".epub") == []
+    assert not (book_dir(env) / "name_fixes.txt").exists()
+
+
+def test_an_ordinary_word_of_the_translation_is_not_taken_for_a_name():
+    """A published book had every "toko" (shop) turned into "Tokyo"."""
+    entries = [{"source": "Tokyo", "target": "Tokyo", "decision": "keep"}]
+    output = "Dia pergi ke Toko itu, lalu ke toko kue di Tokyo."
+    assert qa.find_name_variants("She went to a shop in Tokyo.", output, entries) == {}
 
 
 def test_a_truncated_translation_is_flagged(env, monkeypatch):  # noqa: F811

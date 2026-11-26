@@ -87,6 +87,32 @@ final class Updater {
         }
     }
 
+    /// How old an answer may be: an app left open for days must not go on saying it is up to date.
+    static let periodicAge: TimeInterval = 6 * 3600      // while the app runs
+    static let settingsAge: TimeInterval = 10 * 60       // when Settings is opened
+
+    /// Whether the last answer is too old to show. A found update or work in progress is kept.
+    nonisolated static func needsCheck(_ state: State, lastChecked: Date?, maxAge: TimeInterval, now: Date) -> Bool {
+        switch state {
+        case .checking, .downloading, .available: return false
+        case .idle, .upToDate, .failed:
+            guard let lastChecked, state != .idle else { return true }
+            return now.timeIntervalSince(lastChecked) >= maxAge
+        }
+    }
+
+    func checkIfStale(_ maxAge: TimeInterval) async {
+        if Updater.needsCheck(state, lastChecked: lastChecked, maxAge: maxAge, now: Date()) { await check() }
+    }
+
+    /// Looks again from time to time. It only finds an update; installing waits for an idle moment.
+    func watch() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 30 * 60 * 1_000_000_000)
+            if autoUpdate && !Task.isCancelled { await checkIfStale(Updater.periodicAge) }
+        }
+    }
+
     /// Called when the queue becomes idle or at launch: installs a waiting update if allowed.
     func installIfAllowed(queueIdle: Bool) async {
         guard autoUpdate, queueIdle, case .available = state else { return }

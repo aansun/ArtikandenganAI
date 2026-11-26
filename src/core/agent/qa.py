@@ -1,5 +1,5 @@
 """
-Quality checks on a finished volume, and the repair of name variants.
+Quality checks on a finished volume.
 
 ``audit_volume`` compares every translated document with its source and flags what a
 translator, human or machine, typically gets wrong without any error being raised:
@@ -13,9 +13,9 @@ translator, human or machine, typically gets wrong without any error being raise
 
 ``find_name_variants`` finds the other classic failure of long books: a name that drifted
 ("Lestrade" ... "Lestrada"). A capitalised word in the middle of a sentence that is not in
-the source, not in the glossary, and one or two letters away from a locked name is a
-variant; ``apply_variant_fixes`` repairs them with the engine's literal term-fix (no LLM,
-only exact whole-word replacements).
+the source, not in the glossary, and one or two letters away from a locked name may be a
+variant. It is only reported: the same likeness fits ordinary words of the target language
+("toko", shop, beside "Tokyo"), so nothing is ever replaced automatically.
 """
 
 from __future__ import annotations
@@ -148,7 +148,7 @@ def audit_volume(source: Path, output: Path, entries: Sequence[Dict[str, str]],
 
 def find_name_variants(source_text: str, output_text: str,
                        entries: Sequence[Dict[str, str]]) -> Dict[str, Tuple[str, int]]:
-    """``{variant: (locked name it resembles, occurrences)}`` for the drifted names of a translation."""
+    """``{word: (locked name it resembles, occurrences)}``: spellings worth a look."""
     locked = {token for e in entries if e.get("decision") in ("keep", "transliterate")
               for token in re.findall(r"[\w’'-]+", e.get("target", ""))
               if token[:1].isupper() and len(token) >= 4}
@@ -162,8 +162,10 @@ def find_name_variants(source_text: str, output_text: str,
     locked = {name for name in locked
               if name.lower() not in common and name.lower() + "s" not in common}
     variants: Dict[str, Tuple[str, int]] = {}
-    for token, count in Counter(_CAPITALISED.findall(output_text)).items():
-        if token in known or token in locked:
+    ordinary = set(re.findall(r"\b[a-z][\w\u2019'-]+\b", output_text))
+    words = (token.rstrip("\u2019'") for token in _CAPITALISED.findall(output_text))
+    for token, count in Counter(words).items():
+        if token in known or token in locked or token.lower() in ordinary:
             continue
         best = max(locked, key=lambda name: SequenceMatcher(None, token, name).ratio(), default="")
         if (best and token[0] == best[0] and abs(len(token) - len(best)) <= 2
@@ -172,41 +174,16 @@ def find_name_variants(source_text: str, output_text: str,
     return variants
 
 
-def write_rules(path: Path, variants: Dict[str, Tuple[str, int]]) -> None:
-    """The term-fix rules file: one ``variant -> locked name`` line per canonical name."""
-    grouped: Dict[str, List[str]] = {}
-    for variant, (canonical, _count_) in variants.items():
-        grouped.setdefault(canonical, []).append(variant)
-    path.write_text("".join(f"{'|'.join(forms)} -> {canonical}\n" for canonical, forms in grouped.items()),
-                    encoding="utf-8")
-
-
-def apply_variant_fixes(output: Path, rules: Path, target_language: str, run_job) -> bool:
-    """Repair ``output`` in place with the literal term-fix; ``run_job(argv)`` runs it.
-
-    Returns True when the file was replaced.
-    """
-    fixed = output.with_name(output.stem + ".fixed" + output.suffix)
-    status_ok = run_job(["-i", str(output), "-o", str(fixed), "-tl", target_language,
-                         "--fix-terms", str(rules), "--fix-terms-mode", "literal"])
-    # the engine writes a change report next to its output: it is not part of the book's files
-    fixed.with_name(fixed.stem + ".term-fix.md").unlink(missing_ok=True)
-    if status_ok and fixed.exists() and fixed.stat().st_size > 0:
-        fixed.replace(output)
-        return True
-    fixed.unlink(missing_ok=True)
-    return False
-
-
 def report_markdown(title: str, volumes: List[Tuple[str, List[DocResult], Dict[str, str]]]) -> str:
-    """The QA report of a book. ``volumes`` is ``[(label, results, fixed variants)]``."""
+    """The QA report of a book. ``volumes`` is ``[(label, results, name spellings to check)]``."""
     flagged = sum(1 for _label, results, _fixed in volumes for r in results if r.flags)
     lines = [f"# Quality report - {title}", "",
              f"{flagged} document(s) flagged. Flags are things to look at, not proven errors.", ""]
     for label, results, fixed in volumes:
         lines += [f"## {label}", ""]
         if fixed:
-            lines += ["Name variants repaired: " + ", ".join(f"{v} -> {c}" for v, c in fixed.items()), ""]
+            lines += ["Spellings that look like a name of the glossary (nothing was changed; check them): "
+                      + ", ".join(f"{word} (like {name}, {count}x)" for word, (name, count) in fixed.items()), ""]
         rows = [r for r in results if r.flags]
         if not rows:
             lines += [f"All {len(results)} documents passed.", ""]

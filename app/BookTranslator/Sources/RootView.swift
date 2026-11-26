@@ -60,6 +60,7 @@ struct RootView: View {
             if model.notifyVolume || model.notifyAttention { model.requestNotificationAccess() }
             if updater.autoUpdate { await updater.check(); await updater.installIfAllowed(queueIdle: !model.isBusy) }
         }
+        .task { await updater.watch() }
     }
 
     private func count(_ s: Stage3) -> Int {

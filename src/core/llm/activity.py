@@ -32,7 +32,7 @@ FIELDS = {
     "volume": ("status", "genre", "book_class", "profile", "source_language", "target_language",
                "polish", "parallel", "chunk_tokens", "resumed", "seconds", "models",
                "chunks_total", "chunks_failed", "chunks_untranslated", "chunks_token_aligned",
-               "chunks_retried", "placeholder_errors", "qa_flags", "names_fixed",
+               "chunks_retried", "placeholder_errors", "qa_flags", "names_suspected",
                "metadata_missing"),
 }
 
