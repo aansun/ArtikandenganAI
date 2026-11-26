@@ -344,6 +344,11 @@ class JobRunner:
                            f"the translated file is kept as is.")
             refine_after = False
 
+        if stored_phase == PHASE_REFINE and not refine_after:
+            restored = self._keep_unpolished(job)
+            if restored is not None:
+                return restored
+
         resume_refine = (checkpoint is not None and stored_phase == PHASE_REFINE
                          and refine_after and os.path.exists(job.output_path))
         if resume_refine:
@@ -380,9 +385,39 @@ class JobRunner:
         refine_job = job.with_changes(input_path=pre_refine)
         result = await self._run_refine(refine_job, refine_index,
                                         meta={'enable_refinement': True, 'current_phase': 2})
-        if result.status is JobStatus.COMPLETED and pre_refine != job.output_path:
-            self._safe(lambda: os.remove(pre_refine))
+        if result.status is JobStatus.COMPLETED:
+            if pre_refine != job.output_path:
+                self._safe(lambda: os.remove(pre_refine))
+            self._remove_partial_outputs(job.output_path)
         return result
+
+    def _keep_unpolished(self, job: JobConfig) -> Optional[JobResult]:
+        """A job resumed in the refine phase with refinement now switched off.
+
+        The translation is complete, so it is kept as the result: the
+        pre-refine copy is put back over whatever the interrupted pass left in
+        the output. None when neither file exists (the job translates again
+        from its checkpoint).
+        """
+        pre_refine = job.output_path + PRE_REFINE_SUFFIX
+        if os.path.exists(pre_refine):
+            os.replace(pre_refine, job.output_path)
+        elif not os.path.exists(job.output_path):
+            return None
+        self._remove_partial_outputs(job.output_path)
+        self.sinks.log("refine_skipped_on_resume",
+                       "↻ Translation already finished and refinement is off: keeping the translation.")
+        return JobResult(status=JobStatus.COMPLETED, output_path=job.output_path)
+
+    def _remove_partial_outputs(self, output_path: str) -> None:
+        """Delete the `[partial] ` files an interrupted refine pass left beside
+        an output that is now complete."""
+        from src.utils.file_utils import find_partial_output_paths
+        try:
+            for stale in find_partial_output_paths(output_path):
+                os.remove(stale)
+        except OSError as e:
+            _logger.warning("Could not remove a partial output of %s: %s", self.translation_id, e)
 
     async def _run_translate(self, job: JobConfig, resume_index: int, refine_after: bool) -> JobResult:
         translate_file = self._engine('translate_file')

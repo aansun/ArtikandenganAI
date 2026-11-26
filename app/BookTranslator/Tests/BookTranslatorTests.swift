@@ -75,6 +75,20 @@ final class ModelDecodingTests: XCTestCase {
 
 @MainActor
 final class QueueTests: XCTestCase {
+    /// These tests run in the app's own defaults: put back every setting they change.
+    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests"]
+    private var savedSettings: [String: Any] = [:]
+
+    override func setUp() {
+        super.setUp()
+        savedSettings = Self.touchedKeys.reduce(into: [:]) { $0[$1] = UserDefaults.standard.object(forKey: $1) }
+    }
+
+    override func tearDown() {
+        for key in Self.touchedKeys { UserDefaults.standard.set(savedSettings[key], forKey: key) }
+        super.tearDown()
+    }
+
     private func model() -> AppModel {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bt-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -118,8 +132,19 @@ final class QueueTests: XCTestCase {
         XCTAssertEqual(m.books[0].targetLanguage, "Spanish")
         m.targetLanguage = "Japanese"                 // a later change does not touch queued books
         XCTAssertEqual(m.books[0].targetLanguage, "Spanish")
-        m.targetLanguage = "Indonesian"
-        UserDefaults.standard.removeObject(forKey: "targetLanguage")
+    }
+
+    func testPolishAndParallelBecomeEngineArguments() {
+        let model = model()
+        let book = QueueBook(fileName: "a.epub", title: "A", kind: .fiction)
+        (model.polishNovels, model.parallelRequests) = (true, 1)
+        XCTAssertFalse(model.baseArguments(book).contains("--no-refine"))
+        XCTAssertFalse(model.baseArguments(book).contains("--parallel"))
+        (model.polishNovels, model.parallelRequests) = (false, 3)
+        XCTAssertTrue(model.baseArguments(book).contains("--no-refine"))
+        XCTAssertEqual(Array(model.baseArguments(book).suffix(2)), ["--parallel", "3"])
+        XCTAssertEqual(AppModel.clampParallel(0), 1)
+        XCTAssertEqual(AppModel.clampParallel(9), 3)
     }
 
     func testUnreadyAndKindToggle() {

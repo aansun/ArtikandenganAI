@@ -377,8 +377,12 @@ class BookAgent:
             prompt_options["custom_instructions"] = self.style_text
             prompt_options["refinement_instructions"] = style_mod.refinement_instructions(
                 self.style_text, self.opt.target_language)
+        # The polish pass and the number of parallel requests follow this run, not the one
+        # that saved the checkpoint: both may be changed before a volume is resumed.
+        prompt_options["refine"] = self.refine_on
         return job.with_changes(
             max_tokens_per_chunk=self.opt.max_tokens_per_chunk, prompt_options=prompt_options,
+            refine_after=self.refine_on, parallel_workers=max(1, self.opt.parallel),
             provider=job.provider.with_changes(options=options))
 
     def _translate_volume(self, vol: VolumeState, profile: BookProfile, choice: ModelChoice,

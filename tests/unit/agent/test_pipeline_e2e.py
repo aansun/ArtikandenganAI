@@ -201,6 +201,60 @@ def test_no_refine_skips_the_polish_pass(env):
     assert json.loads((book_dir(env) / "book.json").read_text())["polish_pass"] is False
 
 
+def is_polish(call) -> bool:
+    return "Polish this Indonesian translation" in call["prompt"] + call["system"]
+
+
+def claude_out_of_quota_for(env, monkeypatch, marker):
+    """The fake claude, answering "usage limit" to every request that holds ``marker``."""
+    wrapper = env / "claude_limited.py"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\nimport json, subprocess, sys\n"
+        "data = sys.stdin.read()\n"
+        f"if {marker!r} in data + ' '.join(sys.argv):\n"
+        "    print(json.dumps({'is_error': True, 'result': 'Usage limit reached', 'api_error_status': 429}))\n"
+        "    sys.exit(1)\n"
+        f"sys.exit(subprocess.run([{str(HERE / 'fake_claude.py')!r}] + sys.argv[1:], input=data, text=True).returncode)\n")
+    wrapper.chmod(0o755)
+    monkeypatch.setenv("CLAUDE_CLI_PATH", str(wrapper))
+
+
+def test_polish_can_be_switched_off_for_a_volume_stopped_while_polishing(env, monkeypatch):
+    upload(env, volumes=1, chapters=2)
+    claude_out_of_quota_for(env, monkeypatch, "Polish this Indonesian translation")
+    translate_book.main(["--fiction"])
+    work = book_dir(env)
+    assert json.loads((work / "book.json").read_text())["volumes"][0]["status"] == "rate_limited"
+
+    reset_breakers()
+    monkeypatch.setenv("CLAUDE_CLI_PATH", str(HERE / "fake_claude.py"))
+    before = len(calls(env))
+    source = work / "source" / "saga.epub"
+    assert translate_book.main(["-i", str(source), "--fiction", "--no-refine"]) == 0
+    new = calls(env)[before:]
+    assert not any(is_translation(c) or is_polish(c) for c in new)
+    assert json.loads((work / "book.json").read_text())["volumes"][0]["status"] == "completed"
+    outputs = list((work / "translation").iterdir())
+    assert len(outputs) == 1 and outputs[0].suffix == ".epub"
+    with zipfile.ZipFile(outputs[0]) as z:
+        assert z.testzip() is None
+
+
+def test_parallel_requests_can_be_chosen_when_a_volume_is_resumed(env, monkeypatch, capsys):
+    upload(env, volumes=1, chapters=3)
+    claude_out_of_quota_for(env, monkeypatch, "</TRANSLATION>")
+    translate_book.main(["--non-fiction", "--no-refine"])
+    work = book_dir(env)
+    assert json.loads((work / "book.json").read_text())["volumes"][0]["status"] != "completed"
+
+    reset_breakers()
+    monkeypatch.setenv("CLAUDE_CLI_PATH", str(HERE / "fake_claude.py"))
+    capsys.readouterr()
+    source = work / "source" / "saga.epub"
+    assert translate_book.main(["-i", str(source), "--non-fiction", "--no-refine", "--parallel", "3"]) == 0
+    assert "3 concurrent chunks" in capsys.readouterr().out
+
+
 def test_an_edited_style_guide_and_glossary_are_used_as_is(env):
     upload(env, volumes=2, chapters=1)
     assert translate_book.main(["--glossary-only"]) == 0

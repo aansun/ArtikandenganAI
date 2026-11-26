@@ -180,6 +180,45 @@ def test_interrupted_refine_resumes_refine_not_translation(env):
     assert calls == ['translate', ('refine', 0), ('refine', 2)]
 
 
+@pytest.mark.parametrize("snapshot", [True, False])
+def test_resume_with_refine_switched_off_keeps_the_translation(env, snapshot):
+    tmp_path, source, manager = env
+    calls = []
+    sinks = RecordingSinks()
+
+    async def translate_file(job, ctx):
+        calls.append('translate')
+        return _completed(job, ctx, "full translation")
+
+    async def refine_interrupted(job, ctx):
+        calls.append('refine')
+        with open(job.output_path, "w", encoding="utf-8") as f:
+            f.write("half polished" if snapshot else "full translation")
+        if not snapshot:
+            (tmp_path / "out.txt.pre-refine").unlink()
+        sinks.interrupt = True
+        return JobResult.interrupted(output_path=job.output_path)
+
+    engines = {'translate_file': translate_file, 'refine_file': refine_interrupted}
+    job = _job(tmp_path, source, refine_after=True, origin='web')
+    asyncio.run(JobRunner(job, translation_id='trans_off', checkpoint_manager=manager, sinks=sinks,
+                          temp_dir=str(tmp_path), engines=engines).run())
+
+    stored = manager.get_job('trans_off')['config']
+    resumed = JobConfig.from_persisted(stored, output_dir=str(tmp_path), input_path=str(source))
+    resumed = resumed.with_changes(refine_after=False, prompt_options={'refine': False})
+    result = asyncio.run(JobRunner(resumed, translation_id='trans_off', checkpoint_manager=manager,
+                                   sinks=RecordingSinks(), is_resume=True, temp_dir=str(tmp_path),
+                                   engines=engines).run())
+
+    assert result.status is JobStatus.COMPLETED
+    assert calls == ['translate', 'refine']          # nothing ran again
+    with open(result.output_path, encoding="utf-8") as f:
+        assert f.read() == "full translation"
+    assert not (tmp_path / "out.txt.pre-refine").exists()
+    assert _status(manager, 'trans_off') == 'completed'
+
+
 def test_rate_limit_auto_resume_is_a_loop(env, monkeypatch):
     import src.config as cfg
     monkeypatch.setattr(cfg, "RATE_LIMIT_AUTO_RESUME_DELAY", 0)

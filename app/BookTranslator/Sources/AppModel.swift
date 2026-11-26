@@ -50,6 +50,16 @@ final class AppModel {
     var quality: String = UserDefaults.standard.string(forKey: "quality") ?? "balanced" {
         didSet { UserDefaults.standard.set(quality, forKey: "quality") }
     }
+    /// The second pass that polishes a novel. Off: translated once.
+    var polishNovels: Bool = UserDefaults.standard.object(forKey: "polishNovels") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(polishNovels, forKey: "polishNovels") }
+    }
+    /// Requests sent at once while translating (the polish pass always sends one at a time).
+    var parallelRequests: Int = AppModel.clampParallel(UserDefaults.standard.integer(forKey: "parallelRequests")) {
+        didSet { UserDefaults.standard.set(parallelRequests, forKey: "parallelRequests") }
+    }
+    static let parallelChoices = 1...3
+    static func clampParallel(_ value: Int) -> Int { min(max(value, parallelChoices.lowerBound), parallelChoices.upperBound) }
     var notifyVolume: Bool = UserDefaults.standard.object(forKey: "notifyVolume") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyVolume, forKey: "notifyVolume"); if notifyVolume { requestNotificationAccess() } }
     }
@@ -103,7 +113,8 @@ final class AppModel {
             MainActor.assumeIsolated { self?.current?.terminate() }   // do not leave the engine running without the app
         }
         if deferStartup {
-            Task { await startup() }
+            // The app that hosts the unit tests must not read, resume or rewrite the user's queue.
+            if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil { Task { await startup() } }
         } else {
             applyQueue(Self.readQueue(file: env.queueFile, inbox: env.inbox))
             library.reload(env: env)
@@ -439,10 +450,13 @@ final class AppModel {
         runningID = nil
     }
 
-    private func baseArguments(_ book: QueueBook) -> [String] {
+    /// The engine options of a run. Read when a book starts or resumes.
+    func baseArguments(_ book: QueueBook) -> [String] {
         var args = ["--profile", quality, book.kind == .fiction ? "--fiction" : "--non-fiction",
                     "-tl", book.targetLanguage ?? "Indonesian"]
         if book.style != "auto" { args += ["--style", book.style] }
+        if !polishNovels { args.append("--no-refine") }       // on: the engine polishes fiction only
+        if parallelRequests > 1 { args += ["--parallel", "\(parallelRequests)"] }
         return args
     }
 

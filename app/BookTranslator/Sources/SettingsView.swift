@@ -42,6 +42,18 @@ struct SettingsView: View {
                         }
                         .labelsHidden().frame(width: 190)
                     }
+                    divider
+                    row(loc.t("settings.polish"), loc.t("settings.polishHint")) {
+                        Toggle("", isOn: $model.polishNovels).labelsHidden().toggleStyle(.switch).tint(Theme.green)
+                    }
+                    divider
+                    row(loc.t("settings.parallel"), loc.t("settings.parallelHint")) {
+                        Segmented(items: AppModel.parallelChoices.map { ($0, "\($0)") },
+                                  selection: $model.parallelRequests, fontSize: 13, hPad: 14)
+                    }
+                    Text(loc.t("settings.speedNote")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16).padding(.vertical, 10).background(Theme.sidePanel)
                 }
 
                 group {

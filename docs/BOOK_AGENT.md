@@ -84,7 +84,9 @@ One run does, for each book:
 8. **Translate** the volumes in order with the glossary and style guide. Fiction then gets a
    **polish pass** (`--no-refine` skips it): the translation is smoothed for natural reading with
    the instruction never to change meaning, facts, names or glossary terms. The polish roughly
-   doubles the number of calls.
+   doubles the number of calls. Both `--no-refine` and `--parallel` apply to the run that resumes a
+   stopped volume too; switching the polish off for a volume stopped while polishing keeps the
+   finished translation as it is. An EPUB polish pass that was stopped starts over.
 9. **Check and finish** each volume:
    - **Boilerplate pages** that are not part of the book are deleted from the translation (spine,
      manifest, table of contents and file), also for a translation made before the cleaning
@@ -150,7 +152,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--profile economy\|balanced\|best` | Cost/quality trade-off for model choice |
 | `-m MODEL`, `--effort LEVEL` | Force the model; effort level for the CLI |
 | `--no-split`, `--volume-pattern REGEX` | Control volume splitting |
-| `--chunk-tokens N`, `--parallel N` | Chunk size (default 1800); concurrent chunks (default 1) |
+| `--chunk-tokens N`, `--parallel N` | Chunk size (default 1800); concurrent requests while translating (default 1) |
 | `--translate-provider auto\|claude-cli\|codex\|agy\|agy-claude` | `auto` (default): every active engine, first = main, rest = backups; or force one |
 | `--engines codex,claude`, `--refresh-engines` | Order or subset of engines for `auto`; probe them again instead of using the cached result |
 | `--style auto\|formal\|santai\|sastra` | Translation style; `auto` follows the recommendation |
@@ -162,8 +164,11 @@ anything still missing (title, creator, language, identifier, description, cover
 ## Cost and speed
 
 Every chunk is one CLI call. The agent uses 1800-token chunks (the engine's 450 is meant for small
-local models) and one chunk at a time, because parallel chunks lose the context carried from the
-previous chunk. As a measure, a 43,000-word novel took about 44 minutes with the polish pass on
+local models) and one chunk at a time by default. `--parallel` (in the app: "Requests at once")
+sends several: EPUB chunks are translated independently either way, while plain text loses the context
+carried from the previous chunk. EPUB chapters are still taken one after another, so only the chunks
+within a chapter overlap; the polish pass always sends one request at a time. A higher number uses
+the usage limit faster. As a measure, a 43,000-word novel took about 44 minutes with the polish pass on
 `sonnet`. A ten-volume novel is a long job.
 
 ## For the Mac app

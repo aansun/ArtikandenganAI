@@ -126,7 +126,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--chunk-tokens", type=int, default=1800,
                    help="Tokens per translation chunk (default: 1800).")
     p.add_argument("--parallel", type=int, default=1,
-                   help="Concurrent chunks per volume (default: 1; >1 drops cross-chunk context).")
+                   help="Concurrent requests while translating (default: 1). More is faster and uses "
+                        "the usage limit faster; the polish pass stays sequential. EPUB chunks are "
+                        "translated independently either way; plain text and PDF lose the preceding "
+                        "passage as context.")
     return p
 
 
