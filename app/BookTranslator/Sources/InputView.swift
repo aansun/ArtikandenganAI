@@ -224,9 +224,7 @@ private struct ReadyRow: View {
             return true
         }
         .contextMenu {
-            if book.kind == .fiction {
-                Toggle(loc.t("input.reviewFirst"), isOn: Binding(get: { book.reviewFirst }, set: { model.setReviewFirst(book.id, $0) }))
-            }
+            Toggle(loc.t("input.reviewFirst"), isOn: Binding(get: { model.reviewsFirst(book) }, set: { model.setReviewFirst(book.id, $0) }))
         }
     }
 }

@@ -87,7 +87,7 @@ final class ModelDecodingTests: XCTestCase {
 @MainActor
 final class QueueTests: XCTestCase {
     /// These tests run in the app's own defaults: put back every setting they change.
-    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog"]
+    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -196,6 +196,23 @@ final class QueueTests: XCTestCase {
         XCTAssertEqual(m.env.logFolder.lastPathComponent, "_activity-log")
     }
 
+    func testStyleModeDecidesWhetherABookWaitsForConfirmation() {
+        UserDefaults.standard.removeObject(forKey: "styleMode")
+        let m = model()
+        XCTAssertEqual(m.styleMode, .manual)            // nothing changes for who never opened Settings
+        m.books = [book("A", stage: .needsReview), book("B", stage: .needsReview), book("C", stage: .queued)]
+        XCTAssertTrue(m.books.allSatisfy { m.reviewsFirst($0) })
+        m.setReviewFirst(m.books[1].id, true)           // B asks for itself
+        m.paused = true                                 // nothing may start in a test
+        m.styleMode = .auto
+        XCTAssertEqual(m.books.map(\.stage), [.approved, .needsReview, .queued])
+        XCTAssertEqual(m.books.map { m.reviewsFirst($0) }, [false, true, false])
+        m.setReviewFirst(m.books[2].id, true)
+        XCTAssertTrue(m.reviewsFirst(m.books[2]))
+        XCTAssertTrue(m.paused)
+        XCTAssertFalse(m.baseArguments(m.books[0]).contains("--style"))   // the engine takes the recommended one
+    }
+
     func testUnreadyAndKindToggle() {
         let m = model()
         m.books = [book("A", stage: .queued)]
@@ -203,7 +220,6 @@ final class QueueTests: XCTestCase {
         XCTAssertEqual(m.books[0].stage, .uploaded)
         m.toggleKind(m.books[0].id)
         XCTAssertEqual(m.books[0].kind, .nonfiction)
-        XCTAssertFalse(m.books[0].reviewFirst)
     }
 
     func testQueueSurvivesRelaunchAndInterruptions() {

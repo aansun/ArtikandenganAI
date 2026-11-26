@@ -35,7 +35,7 @@ struct ReviewSheet: View {
             CoverView(title: book.title, image: model.queueCovers[book.id], width: 40, height: 56, radius: 4)
             VStack(alignment: .leading, spacing: 2) {
                 Text(loc.t("review.title", book.title)).font(.system(size: 18, weight: .semibold))
-                Text(loc.t("review.intro")).font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text(loc.t(book.kind == .fiction ? "review.intro" : "review.introNonfiction")).font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
             Spacer()
         }

@@ -45,6 +45,11 @@ struct SettingsView: View {
                         .labelsHidden().frame(width: 190)
                     }
                     divider
+                    row(loc.t("settings.style"), loc.t("settings.style.hint.\(model.styleMode.rawValue)")) {
+                        Segmented(items: StyleMode.allCases.map { ($0, loc.t("settings.style.\($0.rawValue)")) },
+                                  selection: $model.styleMode, fontSize: 13, hPad: 12)
+                    }
+                    divider
                     row(loc.t("settings.polish"), loc.t("settings.polishHint")) {
                         Toggle("", isOn: $model.polishNovels).labelsHidden().toggleStyle(.switch).tint(Theme.green)
                     }

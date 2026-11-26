@@ -50,6 +50,13 @@ final class AppModel {
     var quality: String = UserDefaults.standard.string(forKey: "quality") ?? "balanced" {
         didSet { UserDefaults.standard.set(quality, forKey: "quality") }
     }
+    /// Manual is the default: a long run starts only after the user confirmed the style.
+    var styleMode: StyleMode = StyleMode(rawValue: UserDefaults.standard.string(forKey: "styleMode") ?? "") ?? .manual {
+        didSet {
+            UserDefaults.standard.set(styleMode.rawValue, forKey: "styleMode")
+            if styleMode == .auto && oldValue != .auto { releaseReviews() }
+        }
+    }
     /// The second pass that polishes a novel. Off: translated once.
     var polishNovels: Bool = UserDefaults.standard.object(forKey: "polishNovels") as? Bool ?? true {
         didSet { UserDefaults.standard.set(polishNovels, forKey: "polishNovels") }
@@ -305,7 +312,6 @@ final class AppModel {
                 update(id) {
                     $0.title = info.title; $0.author = info.author; $0.volumes = max(info.volumes, 1)
                     $0.kind = info.kind; $0.estimatedMinutes = info.estimatedMinutes
-                    $0.reviewFirst = info.kind == .fiction
                     if $0.stage == .reading { $0.stage = .uploaded }
                 }
                 loadCover(for: id)
@@ -325,7 +331,7 @@ final class AppModel {
     }
 
     func toggleKind(_ id: QueueBook.ID) {
-        update(id) { $0.kind = $0.kind.other; $0.reviewFirst = $0.kind == .fiction }
+        update(id) { $0.kind = $0.kind.other }
     }
 
     // MARK: - Queue order
@@ -398,7 +404,18 @@ final class AppModel {
         start()
     }
 
-    func setReviewFirst(_ id: QueueBook.ID, _ value: Bool) { update(id) { $0.reviewFirst = value } }
+    func reviewsFirst(_ book: QueueBook) -> Bool { book.reviewChoice ?? (styleMode == .manual) }
+
+    func setReviewFirst(_ id: QueueBook.ID, _ value: Bool) { update(id) { $0.reviewChoice = value } }
+
+    /// Switched to automatic: books waiting for a confirmation go on with the recommended style.
+    private func releaseReviews() {
+        let waiting = books.filter { $0.stage == .needsReview && !reviewsFirst($0) }.map(\.id)
+        guard !waiting.isEmpty else { return }
+        waiting.forEach { id in update(id) { $0.stage = .approved } }
+        reviewTarget = nil
+        if !paused { start() }
+    }
 
     // MARK: - Running
 
@@ -442,8 +459,8 @@ final class AppModel {
         }
         while !paused, let next = nextBook() {
             runningID = next.id
-            if next.stage == .queued && next.kind == .fiction && next.reviewFirst && next.workdir == nil {
-                await prepare(next)
+            if next.stage == .queued && reviewsFirst(next) {      // not confirmed yet
+                if next.workdir == nil { await prepare(next) } else { askForReview(next) }
             } else {
                 await translate(next)
             }
@@ -482,8 +499,17 @@ final class AppModel {
             fail(book.id, tail)
             return
         }
-        update(book.id) { $0.workdir = workdir; $0.stage = .needsReview }
+        update(book.id) { $0.workdir = workdir }
         loadCover(for: book.id)
+        if let prepared = self.book(book.id), reviewsFirst(prepared) {
+            askForReview(prepared)
+        } else {
+            update(book.id) { $0.stage = .approved }       // switched to automatic while preparing
+        }
+    }
+
+    private func askForReview(_ book: QueueBook) {
+        update(book.id) { $0.stage = .needsReview }
         notify(Loc.shared.t("notify.review", book.title), Loc.shared.t("notify.reviewBody"))
     }
 

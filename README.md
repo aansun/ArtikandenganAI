@@ -35,7 +35,8 @@ through an API key. NNAI Translator narrows that down to translating whole **boo
   API keys to manage. If one runs out of quota, the next one carries on.
 - **A queue for many books**, in the order you choose, with pause and resume.
 - **Names that stay the same.** Fiction gets a glossary of characters, places and terms before translating,
-  and you review it in one screen before the long run starts.
+  and you review it, with the writing style, in one screen before the long run starts (or set the style to
+  Automatic and the recommended one is used right away).
 - **A style that fits the book.** A writing style is recommended from the text itself, then a polish pass
   smooths the result (you can switch it off).
 - **Series.** A multi-volume file is split and translated volume by volume.

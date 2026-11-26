@@ -67,6 +67,12 @@ enum Stage: String, Codable {
     case failed
 }
 
+/// Who picks a book's writing style.
+enum StyleMode: String, CaseIterable {
+    case auto      // the recommended style is used and the translation starts right away
+    case manual    // the user confirms the style (and the names) before the translation
+}
+
 /// One book in the Add / Progress screens.
 struct QueueBook: Identifiable, Codable, Equatable {
     var id = UUID()
@@ -77,7 +83,7 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var kind: BookKind = .fiction
     var estimatedMinutes: Int = 0
     var stage: Stage = .reading
-    var reviewFirst = true
+    var reviewChoice: Bool?       // this book's own choice to confirm the style first (nil = the setting)
     var style = "auto"
     var targetLanguage: String?   // fixed when the book joins the queue (nil = Indonesian)
     var workdir: String?          // folder name under books/ once the engine has taken the book
@@ -105,7 +111,7 @@ extension QueueBook {
         kind = try read(.kind, or: kind)
         estimatedMinutes = try read(.estimatedMinutes, or: estimatedMinutes)
         stage = try read(.stage, or: .uploaded)
-        reviewFirst = try read(.reviewFirst, or: reviewFirst)
+        reviewChoice = try saved.decodeIfPresent(Bool.self, forKey: .reviewChoice)
         style = try read(.style, or: style)
         targetLanguage = try saved.decodeIfPresent(String.self, forKey: .targetLanguage)
         workdir = try saved.decodeIfPresent(String.self, forKey: .workdir)
