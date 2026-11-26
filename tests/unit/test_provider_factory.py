@@ -28,6 +28,7 @@ from src.core.llm.providers.litellm import LiteLLMProvider
 from src.core.llm.providers.mistral import MistralProvider
 from src.core.llm.providers.ollama import OllamaProvider
 from src.core.llm.providers.openai import OpenAICompatibleProvider
+from src.core.llm.providers.opencode_cli import OpenCodeProvider
 from src.core.llm.providers.openrouter import OpenRouterProvider
 from src.core.llm.providers.poe import PoeProvider
 
@@ -70,6 +71,7 @@ EXPECTED_PROVIDER_CLASS = {
     "agy": AgyProvider,
     "agy-claude": FallbackProvider,
     "codex": CodexProvider,
+    "opencode": OpenCodeProvider,
     "chain": ChainProvider,
 }
 

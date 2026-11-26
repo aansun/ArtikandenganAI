@@ -65,12 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-sl", "--source-lang", help="Source language (default: detected).")
     p.add_argument("--translate-provider", choices=TRANSLATE_PROVIDERS,
                    default=DEFAULT_TRANSLATE_PROVIDER,
-                   help="auto (default): every active engine of claude, codex and agy; the first "
-                        "is the main one and the others are backups. Or force one: claude-cli, "
-                        "codex, agy, or agy-claude (agy first, claude as backup).")
+                   help="auto (default): every active engine of claude, codex, agy and opencode; "
+                        "the first is the main one and the others are backups. Or force one: "
+                        "claude-cli, codex, agy, or agy-claude (agy first, claude as backup).")
     p.add_argument("--engines", default=os.getenv("AGENT_ENGINES", ""),
                    help="With auto: the engines to consider and their order, e.g. codex,claude "
-                        "(default: claude,codex,agy, or $AGENT_ENGINES).")
+                        "(default: claude,codex,agy,opencode, or $AGENT_ENGINES).")
     p.add_argument("--refresh-engines", action="store_true",
                    help="Probe the engines again instead of using the result kept a few minutes.")
     p.add_argument("--detect", action="store_true",
@@ -217,7 +217,8 @@ def _selfcheck() -> int:
              "src.core.agent.glossary_builder", "src.core.agent.style", "src.core.agent.qa",
              "src.core.agent.epub_metadata", "src.core.agent.intake", "src.core.agent.inspect_book",
              "src.core.llm.providers.claude_cli", "src.core.llm.providers.codex_cli",
-             "src.core.llm.providers.agy", "src.core.llm.providers.chain"]
+             "src.core.llm.providers.agy", "src.core.llm.providers.opencode_cli",
+             "src.core.llm.providers.chain", "src.core.agent.models"]
     missing = []
     for name in names:
         try:

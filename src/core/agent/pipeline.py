@@ -87,7 +87,7 @@ class AgentOptions:
     max_tokens_per_chunk: int = DEFAULT_CHUNK_TOKENS
     parallel: int = 1
     effort: Optional[str] = None
-    engines: Optional[List[str]] = None        # order / subset of claude, codex, agy (auto mode)
+    engines: Optional[List[str]] = None        # order / subset of claude, codex, agy, opencode (auto mode)
     refresh_engines: bool = False              # probe the engines again, ignoring the cache
     style: str = "auto"                        # auto | formal | santai | sastra
 
@@ -538,7 +538,8 @@ class BookAgent:
                       phase: str = "translate") -> None:
         """books/status.json: what is running now, for the app (written atomically)."""
         from src.core.llm.providers.chain import last_engine
-        engine = {"claude-cli": "Claude", "codex": "Codex", "agy": "Antigravity"}.get(last_engine(), "")
+        engine = {"claude-cli": "Claude", "codex": "Codex", "agy": "Antigravity",
+                  "opencode": "OpenCode"}.get(last_engine(), "")
         title = ((self.profile.title if self.profile else "") or self.workdir.name)
         data = {"state": state, "updated_at": _now(), "book": self.workdir.name, "title": title,
                 "volume": vol.index if vol else 0, "volumes": len(self.state.volumes), "pct": pct,
@@ -618,7 +619,7 @@ class BookAgent:
             self._active_engines()
             if not any(e.active for e in self.engines):
                 self.say("No translation engine is active. Install and sign in to at least one of "
-                         "claude, codex or agy, then try again. Found: "
+                         "claude, codex, agy or opencode, then try again. Found: "
                          + "; ".join(f"{e.label}: {e.reason}" for e in self.engines))
                 return 2
         self.profile = asyncio.run(self._classify(volumes))

@@ -1,12 +1,14 @@
 # NNAI Translator: the book agent
 
 `translate_book.py` translates whole books into Indonesian (by default) with the command line
-tools you already have signed in to: `claude`, `codex` and `agy`. It is a layer on top of the
+tools you already have signed in to: `claude`, `codex` and `agy` (`opencode` is wired in but
+has no recommended model yet, see [Models](#models)). It is a layer on top of the
 existing translation engine, so EPUB structure, checkpoints and the glossary machinery are the
 engine's own. Claude is used at `sonnet` at most; `opus` is not an option anywhere.
 
-**Engines.** The agent finds the active engines by itself (installed AND answering a tiny test
-question). The first active one, in the order claude, codex, agy, is the main engine and the other
+**Engines.** The agent finds the active engines by itself (installed AND one of its recommended
+models answering a tiny test question). The first active one, in the order claude, codex, agy,
+opencode, is the main engine and the other
 active ones are backups, in order: when the main engine hits a quota or fails, the next one answers
 that request, and a failing engine rests for ten minutes. `python translate_book.py --detect` shows
 what was found; `--engines codex,claude` changes the order or the set.
@@ -62,9 +64,8 @@ One run does, for each book:
    heuristic takes over. Fiction gets steps 5 to 7 in full; other books skip the glossary.
 4. **Choose the engines and models** from the genre: tier `sonnet` for fiction, specialist and
    general books, tier `haiku` for children's and simple text (`--profile economy` also drops general
-   non-fiction to `haiku`). Each engine maps the tier to its own model (claude: haiku or sonnet;
-   agy: Gemini Flash; codex: its own configured model). `-m` forces the main engine's model; any
-   opus model is refused.
+   non-fiction to `haiku`). Each engine maps the tier to a [recommended model](#models). `-m`
+   forces the main engine's model; any opus or fable model is refused.
 5. **Book bible (fiction), on `sonnet`.** Every volume is cut into parts of about 60k characters
    and the entity pass runs on each part (excerpts spread over the part plus a window around every
    recurring name found by a local scan), not on one sample. The results of all parts and volumes
@@ -161,6 +162,27 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--inspect FILE` | Print what the app shows for a book (title, author, volumes, fiction or not, estimated time), as JSON, and exit |
 | `--watch` | Worker mode: keep translating whatever lands in the inbox (cloud) |
 
+## Models
+
+The app chooses the models, not the CLI's own settings. The list is `src/core/agent/models.py`;
+an engine without a listed model that is available and answers cannot be used.
+
+| Engine | Tier `sonnet` (novels, specialist and general books) | Tier `haiku` (light books) |
+|---|---|---|
+| claude | `sonnet` | `haiku` |
+| codex | `gpt-6-luna`, reasoning high | `gpt-6-luna`, reasoning high |
+| agy | `gemini-3.8-flash-high` | `gemini-3.8-flash-low` |
+| opencode | none yet | none yet |
+
+OpenCode has candidates (Claude Sonnet and Haiku, Gemini Flash through OpenCode Zen) that have not
+translated real text yet, so they are not used. To try them while checking their quality, set
+`AGENT_ALLOW_UNTESTED_MODELS=1`. No free or preview model is listed: some of them train on what
+they are sent. Each OpenCode request runs with every tool switched off, in an empty directory,
+without the user's `AGENTS.md`, `CLAUDE.md`, plugins or MCP servers. OpenCode keeps its own local
+history of the requests, which includes the passages sent.
+
+A model that its provider retires makes the engine inactive until the list is updated.
+
 ## Cost and speed
 
 Every chunk is one CLI call. The agent uses 1800-token chunks (the engine's 450 is meant for small
@@ -175,7 +197,8 @@ the usage limit faster. As a measure, a 43,000-word novel took about 44 minutes 
 
 The app drives `translate_book.py` and reads files; it needs no other interface:
 
-- `--detect`: engines as JSON (`name`, `label`, `active`, `reason`, `role` main or backup, `path`).
+- `--detect`: engines as JSON (`name`, `label`, `active`, `reason`, `role` main or backup, `path`,
+  `models` by tier). A `reason` starting with `no recommended model` means the engine cannot be used.
 - `--inspect FILE`: title, author, volumes, `kind` (fiksi or nonfiksi, recognised from the content),
   source language, word count and estimated minutes, for the Masukkan card. `--fiction` /
   `--non-fiction` overrides the recognition when the user flips it.

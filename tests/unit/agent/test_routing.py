@@ -28,11 +28,12 @@ def test_default_is_auto_and_chains_the_active_engines_in_order():
                Engine("codex", "Codex", "codex", "/x", True, "ok", "backup"),
                Engine("agy", "Antigravity", "agy", "", False, "quota")]
     choice = choose_model("fiction_novel", engines=engines)
-    assert [(c["provider"], c["model"]) for c in choice.chain] == [("claude-cli", "sonnet"), ("codex", "")]
+    codex = "gpt-6-luna@high"
+    assert [(c["provider"], c["model"]) for c in choice.chain] == [("claude-cli", "sonnet"), ("codex", codex)]
     cheap = choose_model("children", engines=engines)
-    assert [c["model"] for c in cheap.chain] == ["haiku", ""]
+    assert [c["model"] for c in cheap.chain] == ["haiku", codex]
     forced = choose_model("fiction_novel", engines=engines, override="sonnet")
-    assert forced.chain[0]["model"] == "sonnet" and forced.chain[1]["model"] == ""
+    assert forced.chain[0]["model"] == "sonnet" and forced.chain[1]["model"] == codex
 
 
 def test_agy_first_mode_has_claude_as_backup():
@@ -56,7 +57,7 @@ def test_opus_is_not_an_option_anywhere():
                 choice = choose_model(genre, profile=profile, provider=provider)
                 assert "opus" not in choice.model + (choice.backup_model or "")
     assert GLOSSARY_MODEL == "sonnet"
-    for name in ("opus", "claude-opus-4-6-thinking", "Opus"):
+    for name in ("opus", "claude-opus-4-6-thinking", "Opus", "claude-fable-5"):
         with pytest.raises(ValueError):
             check_allowed(name)
         with pytest.raises(ValueError):

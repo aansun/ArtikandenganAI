@@ -21,7 +21,26 @@ struct EngineInfo: Codable, Identifiable, Equatable {
     var active: Bool
     var reason: String
     var role: String
+    var models: [String: String]? = nil   // tier -> the app's recommended model, when active
     var id: String { name }
+
+    /// Every engine the translator knows, in its default order.
+    static let known = ["claude", "codex", "agy", "opencode"]
+
+    /// The model that translates novels, as shown in Settings ("name@high" reads "name (high)").
+    var modelName: String? {
+        guard let model = models?["sonnet"], !model.isEmpty else { return nil }
+        let parts = model.split(separator: "@")
+        return parts.count == 2 ? "\(parts[0]) (\(parts[1]))" : model
+    }
+
+    var lacksRecommendedModel: Bool { !active && reason.hasPrefix("no recommended model") }
+
+    /// The saved order, with the engines it does not name yet at the end: a saved order must
+    /// not hide an engine a newer version added. Empty stays empty (the engine's default).
+    static func completeOrder(_ saved: [String]) -> [String] {
+        saved.isEmpty ? [] : saved + known.filter { !saved.contains($0) }
+    }
 }
 
 /// Output of `translate_book.py --inspect FILE`.

@@ -39,11 +39,13 @@ def test_the_result_is_cached_and_refresh_probes_again(env, tmp_path, monkeypatc
 def test_chain_models_follow_the_engines_and_never_use_opus(env):  # noqa: F811
     found = engines.detect_engines(["claude", "codex", "agy"], refresh=True)
     chain = engines.chain_for(found, "sonnet")
-    assert chain == [{"provider": "claude-cli", "model": "sonnet"}, {"provider": "codex", "model": ""},
+    assert chain == [{"provider": "claude-cli", "model": "sonnet"},
+                     {"provider": "codex", "model": "gpt-6-luna@high"},
                      {"provider": "agy", "model": "gemini-3.8-flash-high"}]
     assert engines.chain_for(found, "haiku")[2]["model"] == "gemini-3.8-flash-low"
-    with pytest.raises(ValueError):
-        engines.chain_for(found, "sonnet", override="opus")
+    for banned in ("opus", "claude-fable-5"):
+        with pytest.raises(ValueError):
+            engines.chain_for(found, "sonnet", override=banned)
 
 
 def test_detect_command_prints_json(env, capsys):  # noqa: F811
@@ -67,7 +69,8 @@ def test_codex_is_the_main_engine_when_listed_first(env, monkeypatch):  # noqa: 
     assert translate_book.main(["--non-fiction", "--no-refine"]) == 0
     made = calls(env)
     assert {c["provider"] for c in made} == {"codex"}
-    assert {c["model"] for c in made if is_translation(c)} == {""}       # the CLI's own model
+    # the app's model, not the one configured in the CLI
+    assert {c["model"] for c in made if is_translation(c)} == {"gpt-6-luna"}
 
 
 def test_a_backup_engine_takes_over_when_the_main_one_fails(env, monkeypatch):  # noqa: F811

@@ -191,6 +191,7 @@ struct SettingsView: View {
 
     private static let badge: [String: (String, Color)] = [
         "claude": ("C", Color(hex: 0xD97757)), "codex": ("X", Theme.codexBadge), "agy": ("A", Color(hex: 0x2F7BF0)),
+        "opencode": ("O", Color(hex: 0x6B7280)),
     ]
 
     private var enginesBlock: some View {
@@ -226,7 +227,7 @@ struct SettingsView: View {
                 .frame(width: 30, height: 30).background(color, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 1) {
                 Text(engine.label).font(.system(size: 14, weight: .medium))
-                Text(engine.active ? (engine.role == "main" ? loc.t("settings.signedIn") : loc.t("settings.readyToReplace")) : engine.reason)
+                Text(engineStatus(engine))
                     .font(.system(size: 12)).foregroundStyle(engine.active ? Theme.muted : Theme.warnIcon).lineLimit(2)
             }
             Spacer()
@@ -242,6 +243,13 @@ struct SettingsView: View {
             if let first = names.first { model.moveEngine(first, before: engine.name) }
             return true
         }
+    }
+
+    private func engineStatus(_ engine: EngineInfo) -> String {
+        if engine.lacksRecommendedModel { return loc.t("settings.noModel") }
+        guard engine.active else { return engine.reason }
+        let state = engine.role == "main" ? loc.t("settings.signedIn") : loc.t("settings.readyToReplace")
+        return engine.modelName.map { "\(state) · \($0)" } ?? state
     }
 
     private func chooseFolder(_ start: URL, pick: @escaping (URL) -> Void) {

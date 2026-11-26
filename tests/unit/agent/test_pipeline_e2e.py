@@ -22,6 +22,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CLI_PATH", str(HERE / "fake_claude.py"))
     monkeypatch.setenv("AGY_PATH", str(HERE / "fake_agy.py"))
     monkeypatch.setenv("CODEX_PATH", str(HERE / "fake_codex.py"))
+    monkeypatch.setenv("OPENCODE_CLI_PATH", str(HERE / "fake_opencode.py"))
+    monkeypatch.delenv("AGENT_ALLOW_UNTESTED_MODELS", raising=False)
     monkeypatch.setenv("AGENT_ENGINES", "claude")      # tests of the other engines say so themselves
     monkeypatch.setenv("FAKE_LLM_LOG", str(tmp_path / "calls.jsonl"))
     monkeypatch.setenv("BOOKS_DIR", str(tmp_path / "books"))

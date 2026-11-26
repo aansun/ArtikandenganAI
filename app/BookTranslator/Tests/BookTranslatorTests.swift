@@ -71,6 +71,17 @@ final class ModelDecodingTests: XCTestCase {
         let json = #"[{"name":"claude","label":"Claude","provider":"claude-cli","path":"/x","active":true,"reason":"ok","role":"main"}]"#
         XCTAssertEqual(try JSONDecoder().decode([EngineInfo].self, from: Data(json.utf8)).first?.role, "main")
     }
+
+    func testEngineModelsOrderAndMissingModel() throws {
+        let json = #"[{"name":"codex","label":"Codex","provider":"codex","path":"/x","active":true,"reason":"ok","role":"main","models":{"sonnet":"gpt-6-luna@high","haiku":"gpt-6-luna@high"}},{"name":"opencode","label":"OpenCode","provider":"opencode","path":"/y","active":false,"reason":"no recommended model yet: x","role":"","models":{}}]"#
+        let found = try JSONDecoder().decode([EngineInfo].self, from: Data(json.utf8))
+        XCTAssertEqual(found[0].modelName, "gpt-6-luna (high)")
+        XCTAssertNil(found[1].modelName)
+        XCTAssertTrue(found[1].lacksRecommendedModel)
+        XCTAssertFalse(found[0].lacksRecommendedModel)
+        XCTAssertEqual(EngineInfo.completeOrder(["agy", "claude", "codex"]), ["agy", "claude", "codex", "opencode"])
+        XCTAssertEqual(EngineInfo.completeOrder([]), [])
+    }
 }
 
 @MainActor

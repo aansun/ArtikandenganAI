@@ -5,6 +5,20 @@ import SwiftUI
 /// Renders the screens to PNG files for a visual check. Runs only with BT_SNAPSHOT_DIR set.
 @MainActor
 final class SnapshotTests: XCTestCase {
+    /// The screens are rendered in the app's own defaults: put back every setting they change.
+    private static let touchedKeys = ["appLanguage", "appearanceMode", "libraryLayout", "queuePaused", "targetLanguage"]
+    private var savedSettings: [String: Any] = [:]
+
+    override func setUp() {
+        super.setUp()
+        savedSettings = Self.touchedKeys.reduce(into: [:]) { $0[$1] = UserDefaults.standard.object(forKey: $1) }
+    }
+
+    override func tearDown() {
+        for key in Self.touchedKeys { UserDefaults.standard.set(savedSettings[key], forKey: key) }
+        super.tearDown()
+    }
+
     private func render<V: View>(_ view: V, name: String, size: CGSize, dark: Bool = false) throws {
         guard let dir = ProcessInfo.processInfo.environment["BT_SNAPSHOT_DIR"] else { throw XCTSkip("no BT_SNAPSHOT_DIR") }
         let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height)
@@ -53,7 +67,8 @@ final class SnapshotTests: XCTestCase {
         m.runningID = run.id
         m.engines = [EngineInfo(name: "claude", label: "Claude", active: true, reason: "ok", role: "main"),
                      EngineInfo(name: "codex", label: "Codex", active: true, reason: "ok", role: "backup"),
-                     EngineInfo(name: "agy", label: "Antigravity", active: false, reason: "Quota exhausted, resets Monday 14:30", role: "")]
+                     EngineInfo(name: "agy", label: "Antigravity", active: false, reason: "Quota exhausted, resets Monday 14:30", role: ""),
+                     EngineInfo(name: "opencode", label: "OpenCode", active: false, reason: "no recommended model yet", role: "")]
         m.status = EngineStatus(state: "running", book: "x", title: "x", volume: 3, volumes: 10, pct: 62, engine: "Claude")
         return m
     }

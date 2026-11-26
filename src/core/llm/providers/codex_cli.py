@@ -7,8 +7,9 @@ to ``--output-last-message``, which holds the answer alone while stdout carries 
 log. Every call runs in an empty scratch directory with a read-only sandbox and no saved
 session, so nothing of the project is in reach and nothing is kept.
 
-``model`` may be empty: the CLI's own configured model is then used. Authentication is the
-CLI's own (``codex login``); this module never sees a credential.
+``model`` may carry the reasoning effort after an ``@`` (``name@high``). Empty means the CLI's
+own configured model. Authentication is the CLI's own (``codex login``); this module never
+sees a credential.
 """
 
 import asyncio
@@ -72,8 +73,11 @@ class CodexProvider(LLMProvider):
     def _command(self, request: LLMRequest, executable: str, out_file: str) -> List[str]:
         cmd = [executable, "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only",
                "--color", "never", "-C", self._scratch_dir(), "-o", out_file]
-        if request.model:
-            cmd += ["-m", request.model]
+        model, _, effort = (request.model or "").partition("@")
+        if model:
+            cmd += ["-m", model]
+        if effort:
+            cmd += ["-c", f'model_reasoning_effort="{effort}"']
         return cmd + ["-"]
 
     async def _send(self, request: LLMRequest) -> LLMResponse:

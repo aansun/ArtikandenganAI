@@ -29,6 +29,7 @@ from .providers.agy import AgyProvider
 from .providers.chain import ChainProvider
 from .providers.claude_cli import ClaudeCLIProvider
 from .providers.codex_cli import CodexProvider
+from .providers.opencode_cli import OpenCodeProvider
 from .providers.deepseek import DeepSeekProvider
 from .providers.fallback import FallbackProvider
 from .providers.gemini import GeminiProvider
@@ -226,6 +227,9 @@ def create_llm_provider(
     if cfg.provider == "codex":
         # Authentication is the CLI's own; an empty model means the CLI's configured one.
         return CodexProvider(model=cfg.model or "", log_callback=cfg.log_callback, **common)
+    if cfg.provider == "opencode":
+        # Authentication is the CLI's own; the model is "provider/model".
+        return OpenCodeProvider(model=cfg.model or "", log_callback=cfg.log_callback, **common)
     if cfg.provider == "chain":
         # The engines to try in order: opts["chain"] = [{"provider": ..., "model": ...}, ...].
         links = []

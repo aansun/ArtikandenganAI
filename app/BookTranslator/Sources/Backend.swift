@@ -31,12 +31,12 @@ struct BackendEnvironment {
         return URL(fileURLWithPath: "/usr/bin/python3")
     }
 
-    /// A Mac app does not inherit the shell's PATH, but the engine finds `claude`, `codex`
-    /// and `agy` on it. Add the places those tools are normally installed.
+    /// A Mac app does not inherit the shell's PATH, but the engine finds `claude`, `codex`,
+    /// `agy` and `opencode` on it. Add the places those tools are normally installed.
     static func searchPath() -> String {
         let home = NSHomeDirectory()
         let extra = ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.local/bin", "\(home)/.claude/local",
-                     "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.antigravity/bin",
+                     "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.antigravity/bin", "\(home)/.opencode/bin",
                      "/usr/bin", "/bin"]
         let current = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
         var seen = Set<String>()
@@ -63,7 +63,8 @@ struct BackendEnvironment {
         let process = Process()
         process.executableURL = python
         process.currentDirectoryURL = workDir ?? root
-        let engines = engineOrder.isEmpty ? [] : ["--engines", engineOrder.joined(separator: ",")]
+        let order = EngineInfo.completeOrder(engineOrder)
+        let engines = order.isEmpty ? [] : ["--engines", order.joined(separator: ",")]
         process.arguments = [script.path, "--books-dir", booksDir.path] + engines + arguments
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = Self.cachedPath

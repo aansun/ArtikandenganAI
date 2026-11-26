@@ -2,8 +2,9 @@
 Pick the models for a book from its genre.
 
 By default (``auto``) the agent uses every translation engine that is active on the
-machine (claude, codex, agy; see ``engines.py``): the first is the main one and the rest are
-backups, in order. ``opus`` is not an option anywhere: Claude is capped at ``sonnet``. The
+machine (claude, codex, agy, opencode; see ``engines.py``): the first is the main one and the
+rest are backups, in order. Each uses a model of ``models.py``. ``opus`` and ``fable`` are not
+an option anywhere: Claude is capped at ``sonnet``. The
 glossary, the one step where a mistake is repeated in every volume, runs at the ``sonnet``
 tier on the same chain.
 
@@ -16,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+
+from src.core.agent import models as model_list
 
 #: Cheapest to strongest tier. Values are ``claude --model`` aliases.
 LADDER = ("haiku", "sonnet")
@@ -35,7 +38,7 @@ TRANSLATE_PROVIDERS = (PROVIDER_AUTO, PROVIDER_AGY_CLAUDE, PROVIDER_AGY, PROVIDE
 DEFAULT_TRANSLATE_PROVIDER = PROVIDER_AUTO
 
 #: Tier -> agy model id (see ``agy models``).
-AGY_MODELS = {"haiku": "gemini-3.8-flash-low", "sonnet": "gemini-3.8-flash-high"}
+AGY_MODELS = {tier: model_list.first_choice("agy", tier) for tier in LADDER}
 
 FICTION_GENRES = frozenset({"fiction_novel", "light_novel", "literary_fiction"})
 SPECIALIST_GENRES = frozenset({"technical", "academic", "legal"})
@@ -77,10 +80,11 @@ def is_fiction(genre: str) -> bool:
 
 
 def check_allowed(model: str) -> str:
-    """Refuse opus: the agent never uses it, on any provider."""
-    if "opus" in (model or "").lower():
-        raise ValueError(f"model '{model}' is not allowed: the agent never uses opus "
-                         "(claude is capped at sonnet)")
+    """Refuse opus and fable: the agent never uses them, on any provider."""
+    for banned in model_list.BANNED:
+        if banned in (model or "").lower():
+            raise ValueError(f"model '{model}' is not allowed: the agent never uses {banned} "
+                             "(claude is capped at sonnet)")
     return model
 
 
@@ -91,7 +95,7 @@ def models_for(provider: str, tier: str, override: Optional[str] = None):
     if override:
         check_allowed(override)
     if provider == PROVIDER_CODEX:
-        return override or "", None
+        return override or model_list.first_choice("codex", tier), None
     if provider == PROVIDER_CLAUDE:
         return override or tier, None
     primary = override or AGY_MODELS[tier]
