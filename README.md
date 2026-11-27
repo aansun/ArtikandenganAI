@@ -8,10 +8,6 @@ NNAI Translator is a Mac app that translates EPUB and TXT books with the command
 already signed in on your Mac: **Claude**, **Codex** and **Antigravity**. Add your books, put them in
 order, and they are translated one after another while you do something else.
 
-<p align="center">
-  <img src="docs/images/nnai/progress.png" alt="The Progress screen: the book being translated with its four stages, the time each took, the volume and percentage done, and the queue" width="880">
-</p>
-
 ## What it does
 
 - **Queue.** Add many books at once, drag them into the order you want, pause and resume any time, even
@@ -32,15 +28,38 @@ order, and they are translated one after another while you do something else.
 
 ## Screenshots
 
-The pictures show sample data.
+From the first file to the finished book, with sample data.
 
-| Add books and set their order | Check names and style before a novel starts |
-| --- | --- |
-| <img src="docs/images/nnai/add-books.png" alt="The Add screen: uploaded books on the left, books ready to translate on the right" width="430"> | <img src="docs/images/nnai/review.png" alt="The review sheet: names and terms to keep or translate, writing styles and an example" width="430"> |
+### 1. Add books
+
+Drop EPUB or TXT files and put them in the order you want.
 
 <p align="center">
-  <img src="docs/images/nnai/library.png" alt="The Library: finished books with their covers, grouped by type" width="880">
-  <br><em>The library of finished books</em>
+  <img src="docs/images/nnai/add-books.png" alt="The Add screen: uploaded books on the left, books ready to translate on the right" width="840">
+</p>
+
+### 2. Review a novel
+
+Before it starts, choose which names stay as they are and pick the writing style.
+
+<p align="center">
+  <img src="docs/images/nnai/review.png" alt="The review sheet: names and terms to keep or translate, three writing styles and an example" width="840">
+</p>
+
+### 3. Follow the progress
+
+The four stages and the time each took, the volume and percentage done, and the queue.
+
+<p align="center">
+  <img src="docs/images/nnai/progress.png" alt="The Progress screen: a book in its translation stage at 62 percent of volume 3 of 10, with one book waiting" width="840">
+</p>
+
+### 4. Open your library
+
+Finished books with their covers. A book that needs a look is marked **Check**.
+
+<p align="center">
+  <img src="docs/images/nnai/library.png" alt="The Library: nine finished books grouped into fiction and non-fiction" width="840">
 </p>
 
 ## How it differs from the main project

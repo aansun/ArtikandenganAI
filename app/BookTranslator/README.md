@@ -100,5 +100,5 @@ drive the real engine and CLIs end to end when `BT_INTEGRATION=<epub>` and `BT_R
 folder>` are set (with `TEST_RUNNER_` prefixes under `xcodebuild`). Both are skipped otherwise.
 
 The pictures in the main README come from sample data: run `SnapshotTests/testReadmeScreens` with
-`TEST_RUNNER_BT_README_DIR=<folder>`, then copy the results to `docs/images/nnai/` (converted to sRGB,
-1600 px wide).
+`TEST_RUNNER_BT_README_DIR=<folder>`, then
+`python3 -I Tools/frame_screenshots.py <folder> ../../docs/images/nnai` (needs Pillow).

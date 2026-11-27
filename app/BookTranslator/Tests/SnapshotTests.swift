@@ -217,10 +217,12 @@ final class SnapshotTests: XCTestCase {
         moon.workdir = "moon"
 
         let out = URL(fileURLWithPath: dir)
-        try capture(env(RootView(initialStage: .process), m), to: out, name: "progress")
-        try capture(env(RootView(initialStage: .input), m), to: out, name: "add-books")
-        try capture(env(ReviewSheet(book: moon), m), to: out, name: "review", size: CGSize(width: 1000, height: 640), titled: false)
-        try capture(env(RootView(initialStage: .library), m), to: out, name: "library")
+        // Windows near the app's smallest size, so the text stays readable when a README shrinks the picture;
+        // the library is wider, to show every sample book.
+        try capture(env(RootView(initialStage: .input), m), to: out, name: "add-books", size: CGSize(width: 960, height: 600))
+        try capture(env(ReviewSheet(book: moon), m), to: out, name: "review", size: CGSize(width: 960, height: 620), titled: false)
+        try capture(env(RootView(initialStage: .process), m), to: out, name: "progress", size: CGSize(width: 960, height: 600))
+        try capture(env(RootView(initialStage: .library), m), to: out, name: "library", size: CGSize(width: 1180, height: 700))
     }
 
     /// A picture of the window as the window server draws it (corners, shadows and strokes as on screen).
