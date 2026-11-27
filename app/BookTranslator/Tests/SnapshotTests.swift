@@ -191,6 +191,61 @@ final class SnapshotTests: XCTestCase {
         Loc.shared.language = .en
     }
 
+    /// The pictures in the README: sample data only, in a whole window. Runs only with BT_README_DIR set.
+    func testReadmeScreens() throws {
+        guard let dir = ProcessInfo.processInfo.environment["BT_README_DIR"] else { throw XCTSkip("no BT_README_DIR") }
+        Loc.shared.language = .en
+        AppearanceStore.shared.mode = .light
+        UserDefaults.standard.removeObject(forKey: "libraryLayout")      // the default, not this Mac's choice
+        let m = model()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        m.library.books = m.mockLibrary
+        m.library.frozen = true
+
+        let work = m.env.booksDir.appendingPathComponent("moon")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let style = #"{"options":[{"id":"formal","name":"F","description":"d"},{"id":"santai","name":"S","description":"d"},{"id":"sastra","name":"L","description":"d"}],"recommended":"sastra","why":"The book is full of world building and epic names, so rich wording keeps its mood.","chosen":"sastra"}"#
+        try style.write(to: work.appendingPathComponent("style.json"), atomically: true, encoding: .utf8)
+        let terms = [("Aldric Vane", "Aldric Vane", "character"), ("Lyra Thorne", "Lyra Thorne", "character"),
+                     ("Kaldmoor", "Kaldmoor", "place"), ("Ashen Sea", "Laut Abu", "place"), ("Silver Heron", "Silver Heron", "item"),
+                     ("The Veil", "Tabir", "term"), ("Archivist", "Juru Arsip", "title")]
+        let json = "{\"terms\":[" + terms.map {
+            "{\"source\":\"\($0.0)\",\"target\":\"\($0.1)\",\"decision\":\"\($0.0 == $0.1 ? "keep" : "translate")\",\"category\":\"\($0.2)\"}"
+        }.joined(separator: ",") + "]}"
+        try json.write(to: work.appendingPathComponent("glossary.json"), atomically: true, encoding: .utf8)
+        var moon = m.books[2]
+        moon.workdir = "moon"
+
+        let out = URL(fileURLWithPath: dir)
+        try capture(env(RootView(initialStage: .process), m), to: out, name: "progress")
+        try capture(env(RootView(initialStage: .input), m), to: out, name: "add-books")
+        try capture(env(ReviewSheet(book: moon), m), to: out, name: "review", size: CGSize(width: 1000, height: 640), titled: false)
+        try capture(env(RootView(initialStage: .library), m), to: out, name: "library")
+    }
+
+    /// A picture of the window as the window server draws it (corners, shadows and strokes as on screen).
+    /// `CGWindowListCreateImage` is looked up by name because newer SDKs no longer declare it; a process may
+    /// still picture its own windows without the screen-recording permission.
+    private func capture<V: View>(_ view: V, to dir: URL, name: String, size: CGSize = CGSize(width: 1180, height: 700),
+                                  titled: Bool = true) throws {
+        let style: NSWindow.StyleMask = titled ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView] : [.borderless]
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = NSHostingView(rootView: view)
+        window.setContentSize(size)
+        window.orderBack(nil)
+        defer { window.close() }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        typealias Grab = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        let symbol = try XCTUnwrap(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage"))
+        let onlyThisWindow: UInt32 = 1 << 3, withoutShadowAtFullSize: UInt32 = 1 << 0 | 1 << 3
+        let image = try XCTUnwrap(unsafeBitCast(symbol, to: Grab.self)(.null, onlyThisWindow, UInt32(window.windowNumber),
+                                                                       withoutShadowAtFullSize)?.takeRetainedValue())
+        try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+            .write(to: dir.appendingPathComponent("\(name).png"))
+    }
+
     /// The real window chrome: traffic lights and the header in one bar (a bare window with the same style).
     func testWindowChrome() throws {
         guard let dir = ProcessInfo.processInfo.environment["BT_SNAPSHOT_DIR"] else { throw XCTSkip("no BT_SNAPSHOT_DIR") }

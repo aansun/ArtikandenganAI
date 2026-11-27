@@ -98,3 +98,7 @@ xcodebuild -project BookTranslator.xcodeproj -scheme BookTranslator -destination
 `SnapshotTests` render the screens to PNG when `BT_SNAPSHOT_DIR` is set, and `IntegrationTests`
 drive the real engine and CLIs end to end when `BT_INTEGRATION=<epub>` and `BT_ROOT=<engine
 folder>` are set (with `TEST_RUNNER_` prefixes under `xcodebuild`). Both are skipped otherwise.
+
+The pictures in the main README come from sample data: run `SnapshotTests/testReadmeScreens` with
+`TEST_RUNNER_BT_README_DIR=<folder>`, then copy the results to `docs/images/nnai/` (converted to sRGB,
+1600 px wide).

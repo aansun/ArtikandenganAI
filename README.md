@@ -8,6 +8,10 @@ NNAI Translator is a Mac app that translates EPUB and TXT books with the command
 already signed in on your Mac: **Claude**, **Codex** and **Antigravity**. Add your books, put them in
 order, and they are translated one after another while you do something else.
 
+<p align="center">
+  <img src="docs/images/nnai/progress.png" alt="The Progress screen: the book being translated with its four stages, the time each took, the volume and percentage done, and the queue" width="880">
+</p>
+
 ## What it does
 
 - **Queue.** Add many books at once, drag them into the order you want, pause and resume any time, even
@@ -25,6 +29,19 @@ order, and they are translated one after another while you do something else.
   up online by its ISBN (Open Library, Google Books) before you put it in Apple Books.
 - **Your Mac.** Light and dark theme, English or Indonesian menus, 18 target languages
   (Indonesian is the best tuned; the others have had less testing).
+
+## Screenshots
+
+The pictures show sample data.
+
+| Add books and set their order | Check names and style before a novel starts |
+| --- | --- |
+| <img src="docs/images/nnai/add-books.png" alt="The Add screen: uploaded books on the left, books ready to translate on the right" width="430"> | <img src="docs/images/nnai/review.png" alt="The review sheet: names and terms to keep or translate, writing styles and an example" width="430"> |
+
+<p align="center">
+  <img src="docs/images/nnai/library.png" alt="The Library: finished books with their covers, grouped by type" width="880">
+  <br><em>The library of finished books</em>
+</p>
 
 ## How it differs from the main project
 

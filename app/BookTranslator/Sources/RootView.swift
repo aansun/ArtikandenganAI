@@ -12,8 +12,11 @@ struct RootView: View {
     @Environment(Updater.self) private var updater
     @Environment(AppearanceStore.self) private var appearance
     @Environment(\.openSettings) private var openSettings
-    @State private var stage = Stage3.input
+    @State private var stage: Stage3
     @State private var openFolder: String?
+
+    /// The app starts on the first stage; the screenshot renderer asks for the others.
+    init(initialStage: Stage3 = .input) { _stage = State(initialValue: initialStage) }
 
     var body: some View {
         Group {
