@@ -90,7 +90,7 @@ One run does, for each book:
    the instruction never to change meaning, facts, names or glossary terms. The polish roughly
    doubles the number of calls. Both `--no-refine` and `--parallel` apply to the run that resumes a
    stopped volume too; switching the polish off for a volume stopped while polishing keeps the
-   finished translation as it is. An EPUB polish pass that was stopped starts over.
+   finished translation as it is.
 9. **Check and finish** each volume:
    - **Boilerplate pages** that are not part of the book are deleted from the translation (spine,
      manifest, table of contents and file), also for a translation made before the cleaning
@@ -113,6 +113,22 @@ One run does, for each book:
     more often than in the original (a sign of wrong replacements); book details are complete. The
     result is `check.json` (`ok`, `warn`, or `fail` when part of the book is probably missing).
     It does not judge the prose, and nothing is changed. `--check <book folder>` runs it again.
+
+## Polish only
+
+`--polish-only -i book.epub` is for an EPUB that is already in the target language (`-tl`). It is
+not split, cleaned or given a glossary, and no calibration samples are made. The style guide is
+written (or taken from `--style`), the refine-only pass polishes the text, and the final check
+compares the result with your file; it also lists the longer pages in which not one paragraph
+changed. Only the text changes: pages and metadata stay as they were, and your file is not touched.
+
+The book gets its own folder, `books/<book>_polish/`, so it never mixes with a translation of the
+same file; the result is `translation/<book> (<language>, polished).epub`. A stopped run goes on
+with the chunks it already polished. A pass in which no answer of the model could be used ends as
+failed. `--redo` polishes again from your file and keeps the earlier result in `previous/`.
+
+The pass does not see an original, so it cannot find a mistranslation. A glossary is used only if
+you give one (`--glossary`).
 
 ## Where things go
 
@@ -160,6 +176,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--fiction` / `--non-fiction` | Override the classifier |
 | `--glossary FILE` | Use your own glossary (.json/.csv) instead of building one |
 | `--no-refine` | Skip the polish pass |
+| `--polish-only` | [Do not translate](#polish-only): polish and check an EPUB that is already translated (needs `-i`) |
 | `--translate-title` | Translate the book title |
 | `--profile economy\|balanced\|best` | Cost/quality trade-off for model choice |
 | `-m MODEL`, `--effort LEVEL` | Force the model; effort level for the CLI |
@@ -233,6 +250,7 @@ The app drives `translate_book.py` and reads files; it needs no other interface:
 - `books/status.json`: what runs now (`state` running or idle, book, volume, `pct`, `engine` that
   answered last, `stage` prepare, translate, refine or check, `times` in seconds per stage, `polish`),
   updated every few seconds.
+- `book.json` has `mode`: `translate`, or `polish` for a polish-only book.
 - `books/<book>/book.json`, `style.json`, `glossary.json`, `qa_report.md`: the book's state, style
   options and recommendation, locked names and the quality audit.
 - Order of the queue is the app's: it starts one book after another with `-i`.

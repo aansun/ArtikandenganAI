@@ -93,7 +93,32 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var step = ""                 // the stage last worked on: "prepare", "translate", "refine" or "check"
     var times: [String: Int] = [:]   // seconds spent per stage (of the current volume), kept across restarts
     var polishPlanned: Bool?      // whether the engine's last run polishes this book
+    var polishOnly = false        // already translated: polished and checked, not translated
     var error = ""
+
+    /// Only a single EPUB can be polished on its own.
+    var canPolishOnly: Bool { fileName.lowercased().hasSuffix(".epub") }
+    /// A polish-only book is never split.
+    var shownVolumes: Int { polishOnly ? 1 : volumes }
+    /// The inspected estimate covers translating and, for a novel, polishing: about half each.
+    var expectedMinutes: Int {
+        polishOnly && kind == .fiction && estimatedMinutes > 0 ? max(1, estimatedMinutes / 2) : estimatedMinutes
+    }
+
+    /// Which wording fits these books: "" to translate, ".polish" only to polish, ".mixed" both.
+    static func wordingSuffix(_ books: [QueueBook]) -> String {
+        let polished = books.filter(\.polishOnly).count
+        return polished == 0 ? "" : (polished == books.count ? ".polish" : ".mixed")
+    }
+
+    /// Is a book in `source` already written in `target`? ("Bahasa Indonesia" counts as "Indonesian".)
+    static func isWritten(_ source: String, in target: String) -> Bool {
+        func plain(_ name: String) -> String {
+            let name = name.trimmingCharacters(in: .whitespaces).lowercased()
+            return ["bahasa indonesia", "id"].contains(name) ? "indonesian" : name
+        }
+        return !source.isEmpty && plain(source) == plain(target)
+    }
 
     var isQueued: Bool { [.queued, .preparing, .needsReview, .approved, .translating, .failed].contains(stage) }
 }
@@ -124,6 +149,7 @@ extension QueueBook {
         step = try read(.step, or: step)
         times = try read(.times, or: times)
         polishPlanned = try saved.decodeIfPresent(Bool.self, forKey: .polishPlanned)
+        polishOnly = try read(.polishOnly, or: polishOnly)
         error = try read(.error, or: error)
     }
 }
@@ -150,6 +176,9 @@ struct BookStage: Identifiable, Equatable {
     var id: String                // "prepare", "translate", "refine", "check"
     var state: State
     var seconds: Int
+    var polishOnly = false        // the book is only polished: its preparation has no glossary
+
+    var titleKey: String { polishOnly && id == "prepare" ? "stage.prepare.polish" : "stage.\(id)" }
 
     static let order = ["prepare", "translate", "refine", "check"]
 
@@ -157,17 +186,20 @@ struct BookStage: Identifiable, Equatable {
     static func steps(for book: QueueBook, polishByDefault: Bool) -> [BookStage] {
         var current = book.step
         if book.stage == .preparing { current = "prepare" }
-        else if current.isEmpty { current = book.polishing ? "refine" : (book.pct > 0 ? "translate" : "prepare") }
+        else if current.isEmpty {
+            current = book.polishing ? "refine" : (book.pct > 0 ? (book.polishOnly ? "refine" : "translate") : "prepare")
+        }
         // prepared but not translating yet: the preparation is behind us, nothing is active
         let waiting = book.stage == .needsReview
             || (book.stage != .translating && book.stage != .preparing && current == "prepare" && book.workdir != nil)
-        if waiting { current = "translate" }
+        if waiting { current = book.polishOnly ? "refine" : "translate" }
         let at = order.firstIndex(of: current) ?? 0
-        let polishes = current == "refine" || (book.polishPlanned ?? polishByDefault)
+        let polishes = book.polishOnly || current == "refine" || (book.polishPlanned ?? polishByDefault)
         return order.enumerated().map { index, id in
             var state: State = index < at ? .done : (index == at ? (waiting ? .pending : .active) : .pending)
             if id == "refine" && !polishes { state = .skipped }
-            return BookStage(id: id, state: state, seconds: book.times[id] ?? 0)
+            if id == "translate" && book.polishOnly { state = .skipped }
+            return BookStage(id: id, state: state, seconds: book.times[id] ?? 0, polishOnly: book.polishOnly)
         }
     }
 }
@@ -220,6 +252,7 @@ struct LibraryBook: Codable, Identifiable, Equatable {
     var isFiction: Bool?
     var updatedAt: String?
     var qaReport: String?
+    var mode: String?              // "polish" for a book that was only polished
     var volumes: [VolumeInfo]
     var folder: String = ""        // set by the loader: the folder name under books/
     var authorName: String = ""    // set by the loader from the first EPUB
@@ -227,6 +260,7 @@ struct LibraryBook: Codable, Identifiable, Equatable {
     var check: CheckReport?        // set by the loader from check.json
 
     var id: String { folder }
+    var isPolishOnly: Bool { mode == "polish" }
     var kind: BookKind { (isFiction ?? false) ? .fiction : .nonfiction }
     var isComplete: Bool { !volumes.isEmpty && volumes.allSatisfy { $0.status == "completed" } }
     var qaFlagCount: Int { volumes.reduce(0) { $0 + ($1.qaFlags ?? 0) } }
@@ -234,7 +268,7 @@ struct LibraryBook: Codable, Identifiable, Equatable {
     var updatedDate: Date? { ISO8601DateFormatter().date(from: updatedAt ?? "") }
 
     enum CodingKeys: String, CodingKey {
-        case title, titleTranslated, sourceLanguage, targetLanguage, genre, isFiction, updatedAt, qaReport, volumes
+        case title, titleTranslated, sourceLanguage, targetLanguage, genre, isFiction, updatedAt, qaReport, mode, volumes
     }
 }
 

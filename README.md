@@ -14,6 +14,9 @@ order, and they are translated one after another while you do something else.
   after closing the app. You see each stage (glossary, translation, polish, final check) and the time it took.
 - **Your pace.** Switch off the polish pass for novels, or send up to three requests at once, to finish
   sooner.
+- **Already translated?** Choose **Polish only** for an EPUB that is in your language: it is not
+  translated again, only smoothed in the style you pick and checked against your file, which is left
+  as it was.
 - **Consistent names.** For fiction the app first builds a glossary of characters, places and terms, so
   names are written the same way from the first page to the last, and it suggests a writing style that
   fits the book. Multi-volume novels are split and translated volume by volume.

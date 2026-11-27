@@ -83,7 +83,8 @@ def _volumes(records: List[dict]) -> List[str]:
     for r in records:
         if r["event"] == "volume":
             groups[(_main_model(r), r.get("book_class") or "?", r.get("target_language") or "?",
-                    "on" if r.get("polish") else "off", r.get("parallel") or 1)].append(r)
+                    "only" if r.get("mode") == "polish" else "on" if r.get("polish") else "off",
+                    r.get("parallel") or 1)].append(r)
 
     def total(found: List[dict], name: str) -> int:
         return sum(v.get(name) or 0 for v in found)

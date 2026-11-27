@@ -71,18 +71,18 @@ struct ProcessView: View {
                                paused: paused)
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(book.title).font(.system(size: 21, weight: .semibold))
-                        Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.volumes))")
+                        Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.shownVolumes))")
                             .font(.system(size: 13)).foregroundStyle(Theme.muted)
                     }
                     if live { engineLine }
                     if !preparing {
                         HStack(spacing: 5) {
-                            ForEach(1...max(book.volumes, 1), id: \.self) { i in
+                            ForEach(1...max(book.shownVolumes, 1), id: \.self) { i in
                                 RoundedRectangle(cornerRadius: 4).fill(dotColor(i, book: book, tint: tint)).frame(height: 8)
                             }
                         }
                         HStack {
-                            Text(loc.t("process.volumeOf", max(book.volume, 1), book.volumes))
+                            Text(loc.t("process.volumeOf", max(book.volume, 1), book.shownVolumes))
                             Spacer()
                             Text(loc.t("process.volThis", book.pct))
                         }.font(.system(size: 12)).foregroundStyle(Theme.muted)
@@ -213,7 +213,7 @@ struct StageSteps: View {
             Image(systemName: symbol(step.state)).font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(glowing ? Theme.glowLine : (active ? Theme.amber : Theme.stageIdle))
             VStack(alignment: .leading, spacing: 0) {
-                Text("\(number). \(loc.t("stage.\(step.id)"))").font(.system(size: 12.5, weight: active ? .semibold : .medium))
+                Text("\(number). \(loc.t(step.titleKey))").font(.system(size: 12.5, weight: active ? .semibold : .medium))
                 Text(note(step)).font(.system(size: 11)).opacity(0.85).monospacedDigit()
             }
             .lineLimit(1).fixedSize()
@@ -279,7 +279,7 @@ private struct QueueRow: View {
             CoverView(title: book.title, image: model.queueCovers[book.id], width: 38, height: 54, radius: 4)
             VStack(alignment: .leading, spacing: 1) {
                 Text(book.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.volumes)) · \(loc.t("input.about", loc.minutes(book.estimatedMinutes)))")
+                Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.shownVolumes)) · \(loc.t("input.about", loc.minutes(book.expectedMinutes)))")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
                 if failed, !book.error.isEmpty {
                     Text(book.error).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(2)

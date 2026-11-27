@@ -50,6 +50,12 @@ enum CheckStyle {
         default: return Theme.green
         }
     }
+    /// The line of one check. A polished book is compared with the translation it came from, not an original.
+    static func key(_ item: CheckReport.Item, polishOnly: Bool) -> String {
+        let state = item.level == "ok" ? "ok" : "found"
+        let own = "check.polished.\(item.id).\(state)"
+        return polishOnly && Loc.table[own] != nil ? own : "check.\(item.id).\(state)"
+    }
     static func verdict(_ report: CheckReport?, _ loc: Loc) -> String {
         guard let report else { return loc.t("check.none") }
         switch report.overall {
@@ -85,7 +91,7 @@ struct CheckCard: View {
                     }
                     ForEach(volume.checks) { line($0) }
                 }
-                if book.check != nil { Text(loc.t("check.limit")).font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true) }
+                if book.check != nil { Text(loc.t(book.isPolishOnly ? "check.limitPolish" : "check.limit")).font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true) }
                 if !failure.isEmpty { Text(failure).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(3) }
                 HStack(spacing: 6) {
                     Button(model.checking == book.folder ? loc.t("check.running") : loc.t(book.check == nil ? "check.run" : "check.again")) {
@@ -104,7 +110,7 @@ struct CheckCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: CheckStyle.symbol(item.level)).font(.system(size: 10)).foregroundStyle(CheckStyle.color(item.level))
             VStack(alignment: .leading, spacing: 1) {
-                Text(loc.t("check.\(item.id).\(item.level == "ok" ? "ok" : "found")")).font(.system(size: 12))
+                Text(loc.t(CheckStyle.key(item, polishOnly: book.isPolishOnly))).font(.system(size: 12))
                     .fixedSize(horizontal: false, vertical: true)
                 if item.level != "ok" {
                     ForEach(Array(item.items.prefix(4).enumerated()), id: \.offset) { _, text in

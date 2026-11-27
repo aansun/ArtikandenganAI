@@ -133,6 +133,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Polish pass after translation. Default: on for fiction.")
     refine.add_argument("--no-refine", dest="refine", action="store_false",
                         help="Skip the polish pass (halves the number of calls).")
+    p.add_argument("--polish-only", action="store_true",
+                   help="Do not translate: the input (-i) is an EPUB already in the target "
+                        "language. Polish it, then check it against the input. The input file is "
+                        "left as it is.")
     p.add_argument("--chunk-tokens", type=int, default=1800,
                    help="Tokens per translation chunk (default: 1800).")
     p.add_argument("--parallel", type=int, default=1,
@@ -157,7 +161,8 @@ def _options(args, input_path: Path, root: Path) -> AgentOptions:
         refresh_engines=args.refresh_engines, style=args.style,
         glossary_only=args.glossary_only, refine=args.refine,
         keep_original_title=args.keep_original_title, refresh_metadata=args.refresh_metadata,
-        max_tokens_per_chunk=args.chunk_tokens, parallel=args.parallel, effort=args.effort)
+        max_tokens_per_chunk=args.chunk_tokens, parallel=args.parallel, effort=args.effort,
+        polish_only=args.polish_only)
 
 
 def _say(message: str) -> None:
@@ -281,6 +286,11 @@ def main(argv=None) -> int:
             check_allowed(args.model)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.polish_only:
+        if not args.input:
+            parser.error("--polish-only needs -i with the EPUB to polish")
+        if args.refine is False or args.refresh_metadata:
+            parser.error("--polish-only cannot be combined with --no-refine or --refresh-metadata")
     root = library.books_root(args.books_dir)
     order = [e.strip() for e in args.engines.split(",") if e.strip()] or None
 

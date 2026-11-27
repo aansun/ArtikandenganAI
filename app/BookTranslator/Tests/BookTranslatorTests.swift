@@ -229,6 +229,79 @@ final class QueueTests: XCTestCase {
         XCTAssertFalse(m.baseArguments(m.books[0]).contains("--style"))   // the engine takes the recommended one
     }
 
+    func testAPolishOnlyBookIsNotTranslatedAndIgnoresTheTranslationSettings() {
+        let m = model()
+        (m.polishNovels, m.parallelRequests) = (false, 3)
+        var b = book("A", stage: .uploaded)
+        b.volumes = 3; b.estimatedMinutes = 100
+        m.books = [b, QueueBook(fileName: "b.txt", title: "B", stage: .uploaded)]
+        m.setPolishOnly(m.books[0].id, true)
+        m.setPolishOnly(m.books[1].id, true)                 // only an EPUB can be polished
+        XCTAssertEqual(m.books.map(\.polishOnly), [true, false])
+        let args = m.baseArguments(m.books[0])
+        XCTAssertTrue(args.contains("--polish-only"))
+        XCTAssertFalse(args.contains("--no-refine") || args.contains("--parallel"))
+        XCTAssertEqual(m.books[0].shownVolumes, 1)            // never split
+        XCTAssertEqual(m.books[0].expectedMinutes, 50)
+        m.setPolishOnly(m.books[0].id, false)
+        XCTAssertEqual(m.books[0].shownVolumes, 3)
+        XCTAssertFalse(m.baseArguments(m.books[0]).contains("--polish-only"))
+        m.books[0].stage = .queued                            // started: the choice is fixed
+        m.setPolishOnly(m.books[0].id, true)
+        XCTAssertFalse(m.books[0].polishOnly)
+    }
+
+    func testTheReadyCardWordingFollowsItsBooks() {
+        let translate = book("A", stage: .ready)
+        var polish = book("B", stage: .ready)
+        polish.polishOnly = true
+        XCTAssertEqual(QueueBook.wordingSuffix([]), "")
+        XCTAssertEqual(QueueBook.wordingSuffix([translate]), "")
+        XCTAssertEqual(QueueBook.wordingSuffix([polish]), ".polish")
+        XCTAssertEqual(QueueBook.wordingSuffix([polish, translate]), ".mixed")
+        for suffix in ["", ".polish", ".mixed"] {
+            for base in ["input.ready", "input.readyHint", "input.start", "input.readyTitle1", "input.readyTitle"] {
+                XCTAssertNotNil(Loc.table[base + suffix], base + suffix)
+            }
+        }
+    }
+
+    func testABookAlreadyInTheTargetLanguageIsRecognised() {
+        XCTAssertTrue(QueueBook.isWritten("Indonesian", in: "Indonesian"))
+        XCTAssertTrue(QueueBook.isWritten("Bahasa Indonesia ", in: "Indonesian"))
+        XCTAssertFalse(QueueBook.isWritten("English", in: "Indonesian"))
+        XCTAssertFalse(QueueBook.isWritten("", in: "Indonesian"))
+    }
+
+    func testAPolishOnlyBookSkipsTheTranslationStage() {
+        var b = book("A", stage: .translating)
+        b.polishOnly = true; b.workdir = "a_polish"; b.step = "refine"; b.polishing = true; b.pct = 30
+        var steps = BookStage.steps(for: b, polishByDefault: false)
+        XCTAssertEqual(steps.map(\.state), [.done, .skipped, .active, .pending])
+        XCTAssertEqual(steps[0].titleKey, "stage.prepare.polish")
+        b.step = "check"
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: false).map(\.state), [.done, .skipped, .done, .active])
+        b.stage = .needsReview; b.step = "prepare"; b.pct = 0; b.polishing = false
+        steps = BookStage.steps(for: b, polishByDefault: false)
+        XCTAssertEqual(steps.map(\.state), [.done, .skipped, .pending, .pending])
+    }
+
+    func testThePolishChoiceSurvivesTheQueueFileAndTheLibrary() throws {
+        var b = book("A", stage: .queued)
+        b.polishOnly = true
+        let back = try JSONDecoder().decode([QueueBook].self, from: JSONEncoder().encode([b]))
+        XCTAssertTrue(back[0].polishOnly)
+        let json = #"{"title":"A","mode":"polish","volumes":[]}"#
+        XCTAssertTrue(try JSONDecoder.snake.decode(LibraryBook.self, from: Data(json.utf8)).isPolishOnly)
+        let old = #"{"title":"A","volumes":[]}"#
+        XCTAssertFalse(try JSONDecoder.snake.decode(LibraryBook.self, from: Data(old.utf8)).isPolishOnly)
+        let pages = CheckReport.Item(id: "pages", level: "ok", count: 0, items: [])
+        XCTAssertEqual(CheckStyle.key(pages, polishOnly: true), "check.polished.pages.ok")
+        XCTAssertEqual(CheckStyle.key(pages, polishOnly: false), "check.pages.ok")
+        let links = CheckReport.Item(id: "links", level: "warn", count: 1, items: ["a"])
+        XCTAssertEqual(CheckStyle.key(links, polishOnly: true), "check.links.found")
+    }
+
     func testStagesShowWhereABookStandsWithTheTimeSpent() {
         var b = book("A", stage: .translating)
         b.workdir = "a"

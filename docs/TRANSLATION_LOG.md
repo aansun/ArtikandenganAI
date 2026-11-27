@@ -15,7 +15,7 @@ time, a random number for the run and the app version.
 |---|---|---|
 | Engine check | the app looks for its engines | engine, active or not, the models chosen, state as one word (`ok`, `quota`, `auth`, `no_model`, `not_installed`, `other`) |
 | Request | each request to a model | engine, model, step (classify, glossary, style, calibrate, translate, refine, inspect), seconds, characters sent and received, tokens and cost when the tool reports them, success or failure category, cut-off answer |
-| Volume | a volume stops or finishes | outcome, genre, quality setting, source and target language, polish, requests at once, chunk size, duration, requests answered per model, chunks (total, retried, left untranslated, failed, layout approximated), check flags, repaired names, missing metadata |
+| Volume | a volume stops or finishes | outcome, genre, quality setting, source and target language, mode (polish only), polish, requests at once, chunk size, duration, requests answered per model, chunks (total, retried, left untranslated, failed, layout approximated), check flags, repaired names, missing metadata |
 
 ## What is never recorded
 

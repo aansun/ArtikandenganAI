@@ -78,12 +78,15 @@ struct InputView: View {
 
     // MARK: - Ready
 
+    /// The wording of the ready card follows what its books will go through.
+    private func readyKey(_ base: String) -> String { base + QueueBook.wordingSuffix(model.readyList) }
+
     private var readyCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                (Text(loc.t("input.ready")).font(.system(size: 15, weight: .semibold))
+                (Text(loc.t(readyKey("input.ready"))).font(.system(size: 15, weight: .semibold))
                  + Text(" · \(model.readyList.count)").font(.system(size: 15)).foregroundColor(Theme.muted))
-                Text(loc.t("input.readyHint")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text(loc.t(readyKey("input.readyHint"))).font(.system(size: 12)).foregroundStyle(Theme.muted)
             }
             ScrollView {
                 VStack(spacing: 8) {
@@ -113,11 +116,11 @@ struct InputView: View {
 
     private var bottomBar: some View {
         let ready = model.readyList
-        let volumes = ready.reduce(0) { $0 + $1.volumes }
-        let minutes = ready.reduce(0) { $0 + $1.estimatedMinutes }
+        let volumes = ready.reduce(0) { $0 + $1.shownVolumes }
+        let minutes = ready.reduce(0) { $0 + $1.expectedMinutes }
         return HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(ready.isEmpty ? loc.t("input.readyNone") : (ready.count == 1 ? loc.t("input.readyTitle1") : loc.t("input.readyTitle", ready.count)))
+                Text(ready.isEmpty ? loc.t("input.readyNone") : (ready.count == 1 ? loc.t(readyKey("input.readyTitle1")) : loc.t(readyKey("input.readyTitle"), ready.count)))
                     .font(.system(size: 14, weight: .semibold))
                 Text(ready.isEmpty ? loc.t("input.readyDragHint")
                         : loc.t("input.readySub", volumes, loc.minutes(minutes)) + (ready.contains { $0.kind == .fiction } ? loc.t("input.readySubFiction") : ""))
@@ -127,7 +130,7 @@ struct InputView: View {
             if let error = model.lastError.nonEmpty {
                 Text(error).font(.system(size: 11)).foregroundStyle(Theme.warnIcon).lineLimit(2).frame(maxWidth: 280, alignment: .trailing)
             }
-            Button(loc.t("input.start")) { model.startReady(); onStart() }
+            Button(loc.t(readyKey("input.start"))) { model.startReady(); onStart() }
                 .buttonStyle(PrimaryButtonStyle()).disabled(ready.isEmpty)
                 .opacity(ready.isEmpty ? 0.4 : 1)
         }
@@ -147,6 +150,35 @@ struct GripDots: View {
     }
 }
 
+/// Translate the book, or only polish it (it is already translated).
+private struct ModeSwitch: View {
+    @Environment(AppModel.self) private var model
+    @Environment(Loc.self) private var loc
+    var book: QueueBook
+
+    var body: some View {
+        HStack(spacing: 0) {
+            segment("mode.translate", value: false)
+            segment("mode.polish", value: true)
+        }
+        .padding(2).background(Theme.neutralBg, in: RoundedRectangle(cornerRadius: 7))
+        .help(loc.t("input.modeHelp"))
+    }
+
+    private func segment(_ key: String, value: Bool) -> some View {
+        let on = book.polishOnly == value
+        return Button { model.setPolishOnly(book.id, value) } label: {
+            Text(loc.t(key)).font(.system(size: 11, weight: on ? .semibold : .regular)).foregroundStyle(Theme.ink)
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, 8).padding(.vertical, 2)
+                .background(on ? Theme.selectedSeg : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .shadow(color: .black.opacity(on ? 0.18 : 0), radius: 1, y: 1)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
 private struct UploadedRow: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
@@ -162,10 +194,13 @@ private struct UploadedRow: View {
                     HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(loc.t("input.reading")) }
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                 } else {
-                    Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.volumes))")
+                    Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.shownVolumes))")
                         .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
-                    Text(book.kind == .fiction ? loc.t("input.hintFiction") : loc.t("input.hintNonfiction"))
-                        .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
+                    if book.canPolishOnly { ModeSwitch(book: book).padding(.vertical, 2) }
+                    Text(loc.t(book.polishOnly ? "input.hintPolish"
+                               : (book.kind == .fiction ? "input.hintFiction" : "input.hintNonfiction")))
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 4)
@@ -203,8 +238,11 @@ private struct ReadyRow: View {
             CoverView(title: book.title, image: model.queueCovers[book.id], width: 34, height: 48, radius: 3)
             VStack(alignment: .leading, spacing: 1) {
                 Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
-                Text("\(loc.t(book.kind.key)) · \(loc.volumes(book.volumes)) · \(loc.t("input.about", loc.minutes(book.estimatedMinutes)))")
-                    .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
+                // a polished book is never split, so its mode takes the place of the volume count
+                Text([book.polishOnly ? loc.t("mode.polish") : "", loc.t(book.kind.key),
+                      book.polishOnly ? "" : loc.volumes(book.volumes), loc.t("input.about", loc.minutes(book.expectedMinutes))]
+                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(2)
             }
             Spacer(minLength: 4)
             IconButton(symbol: "chevron.up", help: loc.t("input.up"), enabled: model.canMove(book.id, by: -1)) { model.move(book.id, by: -1) }

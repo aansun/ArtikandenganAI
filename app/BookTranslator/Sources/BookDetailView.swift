@@ -15,6 +15,7 @@ struct BookDetailView: View {
     @State private var notice: String?
     @State private var editError: String?
 
+    private var redoKey: String { book.isPolishOnly ? "detail.repolish" : "detail.redo" }
     private var firstOutput: URL? { book.volumes.first.map { URL(fileURLWithPath: $0.output) } }
 
     var body: some View {
@@ -38,8 +39,8 @@ struct BookDetailView: View {
                 if deleted { onBack() }
             }
         }
-        .confirmationDialog(loc.t("detail.redoConfirm"), isPresented: $confirmRedo) {
-            Button(loc.t("detail.redo"), role: .destructive) { model.runMaintenance(folder: book.folder, arguments: ["--redo"]) }
+        .confirmationDialog(loc.t(book.isPolishOnly ? "detail.repolishConfirm" : "detail.redoConfirm"), isPresented: $confirmRedo) {
+            Button(loc.t(redoKey), role: .destructive) { model.runMaintenance(folder: book.folder, arguments: ["--redo"]) }
             Button(loc.t("common.cancel"), role: .cancel) {}
         }
     }
@@ -74,7 +75,9 @@ struct BookDetailView: View {
                     Text(book.title).font(.system(size: 17, weight: .semibold)).lineLimit(3)
                     Text(book.authorName).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2)
                     Text("\(loc.volumes(book.volumes.count)) · \(loc.t(book.kind.key))").font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    Text("\(languageName(book.sourceLanguage)) → \(languageName(book.targetLanguage))").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    Text(book.isPolishOnly ? loc.t("detail.polished", languageName(book.targetLanguage))
+                         : "\(languageName(book.sourceLanguage)) → \(languageName(book.targetLanguage))")
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     Text(loc.t("detail.done", book.updatedDate?.formatted(date: .abbreviated, time: .omitted) ?? ""))
                         .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.okText)
                 }
@@ -87,7 +90,7 @@ struct BookDetailView: View {
                     Button { if let url = firstOutput { NSWorkspace.shared.activateFileViewerSelecting([url]) } } label: {
                         Text(loc.t("detail.reveal")).frame(maxWidth: .infinity)
                     }.buttonStyle(GhostButtonStyle())
-                    Button { confirmRedo = true } label: { Text(loc.t("detail.redo")).frame(maxWidth: .infinity) }
+                    Button { confirmRedo = true } label: { Text(loc.t(redoKey)).frame(maxWidth: .infinity) }
                         .buttonStyle(GhostButtonStyle(tint: Theme.accent)).disabled(model.isBusy)
                 }
                 Button { deletion = model.deletionPlan(book.folder) } label: {

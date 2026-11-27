@@ -1,7 +1,8 @@
 """
 The check made after a book is translated: is the result whole and sound?
 
-Each volume is compared with what it was made from, without asking any model, so the check
+Each volume is compared with what it was made from (the original, or for a polish-only
+run the translation that was polished), without asking any model, so the check
 is quick and can be repeated. It looks for the ways a translation has actually gone wrong:
 a damaged file, pages or paragraphs that did not arrive, passages far shorter than the
 original or left in the source language, links that stopped working, dialogue marks that
@@ -213,10 +214,30 @@ def _surplus(source_text: str, output_text: str, entries: Sequence[Dict[str, str
     return found
 
 
+def _polish_check(source: _Book, output: _Book) -> dict:
+    """Pages with a real amount of text in which not one paragraph was polished."""
+    same = []
+    for page in source.pages():
+        if page in output.raw and len(source.text(page).split()) >= qa.MIN_WORDS \
+                and source.blocks(page) == output.blocks(page):
+            same.append(_name(page))
+    return _result("polish", "warn" if same else "ok", same)
+
+
+def same_text(source: Path, output: Path) -> bool:
+    """Is every paragraph of every page the same in both EPUBs? (Spacing is not compared.)"""
+    before, after = _Book(source), _Book(output)
+    return all(page in after.raw and before.blocks(page) == after.blocks(page) for page in before.pages())
+
+
 def check_volume(source: Path, output: Path, *, upload: Optional[Path] = None,
                  entries: Sequence[Dict[str, str]] = (), source_language: str = "",
-                 target_language: str = "Indonesian") -> List[dict]:
-    """Every check of one translated volume. ``upload`` is the original file of a whole book."""
+                 target_language: str = "Indonesian", polished: bool = False) -> List[dict]:
+    """Every check of one translated volume. ``upload`` is the original file of a whole book.
+
+    With ``polished``, ``source`` is the translation the polish pass started from: nothing
+    was cut from it, and pages the pass did not touch are listed.
+    """
     if output.suffix.lower() != ".epub":
         before, after = (qa.load_documents(p) for p in (source, output))
         words = [sum(len(text.split()) for text, _ in d.values()) for d in (before, after)]
@@ -226,12 +247,15 @@ def check_volume(source: Path, output: Path, *, upload: Optional[Path] = None,
     results = [_file_check(output)]
     if results[0]["level"] == "fail":
         return results
-    made_from, result = _Book(source, cut=True), _Book(output)
+    made_from, result = _Book(source, cut=not polished), _Book(output)
     original = (_Book(upload, cut=True)
                 if upload and upload.suffix.lower() == ".epub" and upload.exists() else None)
-    translate = source_language.strip().lower() != target_language.strip().lower()
+    translate = not polished and source_language.strip().lower() != target_language.strip().lower()
     results.append(_pages_check(made_from, result, original))
-    results += _text_checks(made_from, result, translate)
+    texts = _text_checks(made_from, result, translate)
+    if polished:        # "left untranslated" means nothing here; "left unpolished" does
+        texts = [c for c in texts if c["id"] != "untranslated"] + [_polish_check(made_from, result)]
+    results += texts
 
     # links that worked before and do not now
     already = (original or made_from).broken_links() | made_from.broken_links()

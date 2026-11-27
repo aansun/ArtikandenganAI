@@ -261,9 +261,9 @@ final class AppModel {
 
     /// Minutes left for the book that runs now.
     var remainingMinutes: Int? {
-        guard let book = running, book.estimatedMinutes > 0, book.volumes > 0 else { return nil }
-        let done = Double(max(book.volume - 1, 0) * 100 + book.pct) / Double(book.volumes * 100)
-        return max(1, Int(Double(book.estimatedMinutes) * (1 - done)))
+        guard let book = running, book.expectedMinutes > 0, book.shownVolumes > 0 else { return nil }
+        let done = Double(max(book.volume - 1, 0) * 100 + book.pct) / Double(book.shownVolumes * 100)
+        return max(1, Int(Double(book.expectedMinutes) * (1 - done)))
     }
 
     // MARK: - Engines
@@ -322,6 +322,8 @@ final class AppModel {
                 update(id) {
                     $0.title = info.title; $0.author = info.author; $0.volumes = max(info.volumes, 1)
                     $0.kind = info.kind; $0.estimatedMinutes = info.estimatedMinutes
+                    // translating a book into its own language makes no sense: offer the polish
+                    $0.polishOnly = $0.canPolishOnly && QueueBook.isWritten(info.sourceLanguage, in: targetLanguage)
                     if $0.stage == .reading { $0.stage = .uploaded }
                 }
                 loadCover(for: id)
@@ -342,6 +344,14 @@ final class AppModel {
 
     func toggleKind(_ id: QueueBook.ID) {
         update(id) { $0.kind = $0.kind.other }
+    }
+
+    /// Chosen before a book starts: translate it, or only polish a translation.
+    func setPolishOnly(_ id: QueueBook.ID, _ value: Bool) {
+        update(id) {
+            guard [.uploaded, .ready].contains($0.stage), $0.workdir == nil else { return }
+            $0.polishOnly = value && $0.canPolishOnly
+        }
     }
 
     // MARK: - Queue order
@@ -485,8 +495,12 @@ final class AppModel {
         var args = ["--profile", quality, book.kind == .fiction ? "--fiction" : "--non-fiction",
                     "-tl", book.targetLanguage ?? "Indonesian"]
         if book.style != "auto" { args += ["--style", book.style] }
-        if !polishNovels { args.append("--no-refine") }       // on: the engine polishes fiction only
-        if parallelRequests > 1 { args += ["--parallel", "\(parallelRequests)"] }
+        if book.polishOnly {                                   // one pass, one request at a time
+            args.append("--polish-only")
+        } else {
+            if !polishNovels { args.append("--no-refine") }    // on: the engine polishes fiction only
+            if parallelRequests > 1 { args += ["--parallel", "\(parallelRequests)"] }
+        }
         return args
     }
 
@@ -544,8 +558,9 @@ final class AppModel {
             books.removeAll { $0.id == book.id }
             library.reload(env: env)
             let needsLook = result.check?.needsLook ?? false
+            let body = Loc.shared.t(last.polishOnly ? "notify.donePolishBody" : "notify.doneBody")
             notify(Loc.shared.t("notify.done", result.title),
-                   needsLook ? CheckStyle.verdict(result.check, Loc.shared) : Loc.shared.t("notify.doneBody"), attention: needsLook)
+                   needsLook ? CheckStyle.verdict(result.check, Loc.shared) : body, attention: needsLook)
             addCompletedVolumesToBooks(folder: folder)
         } else {
             update(book.id) { $0.workdir = $0.workdir ?? folder }
@@ -645,7 +660,8 @@ final class AppModel {
     private func findWorkdir(for book: QueueBook, before: Set<String>) -> String? {
         let fresh = bookFolders().subtracting(before)
         if fresh.count == 1, let only = fresh.first { return only }
-        for name in bookFolders() {
+        // the same file may have a translation folder and a polish folder
+        for name in bookFolders() where name.hasSuffix("_polish") == book.polishOnly {
             let state = env.booksDir.appendingPathComponent(name).appendingPathComponent("source")
             if (try? FileManager.default.contentsOfDirectory(atPath: state.path))?.contains(book.fileName) == true { return name }
         }
@@ -691,6 +707,7 @@ final class AppModel {
         book.kind = library.book(folder: folder)?.kind ?? .fiction
         book.targetLanguage = library.book(folder: folder)?.targetLanguage ?? "Indonesian"
         book.volumes = library.book(folder: folder)?.volumes.count ?? 1
+        book.polishOnly = library.book(folder: folder)?.isPolishOnly ?? false
         books.append(book)
         extraArguments[book.id] = arguments
         start()

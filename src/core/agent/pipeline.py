@@ -20,6 +20,11 @@ One run takes a book (a file, or a folder of volume files) through:
 Before step 2 the boilerplate pages of an e-book (licence, transcriber's notes) are
 removed from the working copy, so they are neither translated nor paid for.
 
+With ``polish_only`` the upload is an EPUB that is already in the target language: no
+split, no cleaning and no glossary are made. Its style guide is written, the engine's
+refine-only pass polishes it, and the result is checked against the upload. The text of
+the user's translation is the only thing that changes.
+
 Progress is kept in ``state.json`` and the engine's own checkpoints, so a stopped
 run (usage limit, crash, redeploy) continues where it left off.
 """
@@ -55,6 +60,8 @@ from src.core.agent.volumes import Volume, slugify, split_into_volumes
 from src.core.auto_prep import extract_source_text
 from src.core.job import JobConfig, JobStatus
 from src.core.llm import ProviderConfig, activity, create_llm_provider
+from src.core.refine import chunk_cache
+from src.utils.file_utils import find_partial_output_paths
 
 logger = logging.getLogger("core.agent")
 
@@ -66,6 +73,11 @@ CLASSIFIER_TIER = "haiku"
 DEFAULT_CHUNK_TOKENS = 1800
 
 STATUS_PENDING = "pending"
+#: The book folder of a polish-only run, so it never mixes with a translation of the same file.
+POLISH_FOLDER_SUFFIX = "_polish"
+MODE_TRANSLATE, MODE_POLISH = "translate", "polish"
+NOTHING_POLISHED = ("Nothing was polished: no answer of the model could be used. "
+                    "Check the engines, then run again.")
 
 
 @dataclass
@@ -94,6 +106,7 @@ class AgentOptions:
     engines: Optional[List[str]] = None        # order / subset of claude, codex, agy, opencode (auto mode)
     refresh_engines: bool = False              # probe the engines again, ignoring the cache
     style: str = "auto"                        # auto | formal | santai | sastra
+    polish_only: bool = False                  # the upload is already translated: polish and check it
 
 
 @dataclass
@@ -122,6 +135,7 @@ class RunState:
     glossary: str = ""
     glossary_terms: int = 0
     volumes: List[VolumeState] = field(default_factory=list)
+    polish_only: bool = False
 
 
 def parse_volume_selection(text: str) -> Set[int]:
@@ -148,10 +162,12 @@ class BookAgent:
         self.opt = options
         self.root = Path(options.books_dir).resolve()
         self.workdir = (Path(options.workdir) if options.workdir
-                        else self.root / slugify(Path(options.input_path).stem)).resolve()
+                        else self._default_workdir()).resolve()
         self.say = say or (lambda message: logger.info(message))
         self.state_path = self.workdir / "state.json"
         self.state = self._load_state()
+        if self.state.polish_only:      # a resumed run need not say so again
+            self.opt.polish_only = True
         self.profile: Optional[BookProfile] = None
         self.style_text = ""
         self.refine_on = False
@@ -169,6 +185,16 @@ class BookAgent:
         self._engines_ready = False
 
     # ----------------------------------------------------------------- state
+    def _default_workdir(self) -> Path:
+        """The book's folder: the one the input already lies in, else one named after it."""
+        source = Path(self.opt.input_path).resolve()
+        folder = source.parent.parent
+        if (source.parent.name == library.SOURCE and folder.parent == self.root
+                and (folder / "state.json").is_file()):
+            return folder
+        suffix = POLISH_FOLDER_SUFFIX if self.opt.polish_only else ""
+        return self.root / (slugify(source.stem) + suffix)
+
     def _load_state(self) -> RunState:
         if not self.state_path.exists():
             return RunState()
@@ -183,8 +209,10 @@ class BookAgent:
     def _save_state(self) -> None:
         self.workdir.mkdir(parents=True, exist_ok=True)
         tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(asdict(self.state), ensure_ascii=False, indent=2),
-                       encoding="utf-8")
+        data = asdict(self.state)
+        if not data["polish_only"]:         # a translation's state stays readable by older versions
+            del data["polish_only"]
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(self.state_path)
         self._write_book_json()
         library.write_index(self.root)
@@ -211,6 +239,7 @@ class BookAgent:
             "calibration": (str(self.workdir / "calibration.md")
                             if (self.workdir / "calibration.md").exists() else ""),
             "polish_pass": self.refine_on,
+            "mode": MODE_POLISH if self.opt.polish_only else MODE_TRANSLATE,
             "qa_report": (str(self.workdir / "qa_report.md")
                           if (self.workdir / "qa_report.md").exists() else ""),
             "updated_at": _now(),
@@ -254,23 +283,25 @@ class BookAgent:
         known = self.state.volumes
         if known and all(Path(v.source).exists() for v in known):
             return [Volume(v.index, v.label, Path(v.source)) for v in known]
+        polishing = self.opt.polish_only
         volumes = split_into_volumes(
             source, self.workdir / library.VOLUMES,
-            pattern=self.opt.volume_pattern, split=self.opt.split)
+            pattern=self.opt.volume_pattern, split=self.opt.split and not polishing)
         cleaned = []
-        for v in volumes:
+        for v in [] if polishing else volumes:
             path, removed = clean_volume(v.path, self.workdir / library.VOLUMES)
             if removed:
                 self.say(f"Intake: removed boilerplate from {len(removed)} document(s) of {v.label}: "
                          + ", ".join(f"{name} ({why})" for name, why in removed))
             cleaned.append(Volume(v.index, v.label, path))
-        volumes = cleaned
+        if not polishing:
+            volumes = cleaned
+        mark = f"{self.opt.target_language}, polished" if polishing else self.opt.target_language
         out_dir = self.workdir / library.TRANSLATION
         self.state.volumes = [
             VolumeState(
                 index=v.index, label=v.label, source=str(v.path),
-                output=str(out_dir / f"{slugify(v.path.stem)}"
-                                     f" ({self.opt.target_language}){v.path.suffix}"))
+                output=str(out_dir / f"{slugify(v.path.stem)} ({mark}){v.path.suffix}"))
             for v in volumes
         ]
         self._save_state()
@@ -290,6 +321,11 @@ class BookAgent:
                                       target_language=self.opt.target_language)
         if self.opt.source_language:
             profile.source_language = self.opt.source_language
+        if self.opt.polish_only:        # the file is read in the language it is polished in
+            profile.source_language = self.opt.target_language
+            own = read_metadata(volumes[0].path).get("title", "")
+            profile.title = own or profile.title
+            profile.title_translated = profile.title
         if self.opt.fiction is not None:
             profile.is_fiction = self.opt.fiction
         self.state.profile = asdict(profile)
@@ -313,6 +349,8 @@ class BookAgent:
         if self.opt.glossary_path:
             self.say(f"Glossary: using {self.opt.glossary_path}")
             return Path(self.opt.glossary_path)
+        if self.opt.polish_only:
+            return None             # a glossary maps source words; here there is no source
         related = self._series_books(volumes)
         path = self.workdir / "glossary.json"
         if path.exists():
@@ -402,7 +440,7 @@ class BookAgent:
         prompt_options["custom_instructions"] = self.style_text
 
         calibration = self.workdir / "calibration.md"
-        if profile.is_fiction and not calibration.exists():
+        if profile.is_fiction and not calibration.exists() and not self.opt.polish_only:
             activity.set_phase("calibrate")
             done = await style_mod.calibrate(
                 text, profile, self.opt.target_language, prompt_options, provider, calibration)
@@ -424,10 +462,11 @@ class BookAgent:
                 self.style_text, self.opt.target_language)
         # The polish pass and the number of parallel requests follow this run, not the one
         # that saved the checkpoint: both may be changed before a volume is resumed.
-        prompt_options["refine"] = self.refine_on
+        after = self.refine_on and not self.opt.polish_only    # polish only: the job is the pass
+        prompt_options["refine"] = after
         return job.with_changes(
             max_tokens_per_chunk=self.opt.max_tokens_per_chunk, prompt_options=prompt_options,
-            refine_after=self.refine_on, parallel_workers=max(1, self.opt.parallel),
+            refine_after=after, parallel_workers=max(1, self.opt.parallel),
             provider=job.provider.with_changes(options=options))
 
     def _translate_volume(self, vol: VolumeState, profile: BookProfile, choice: ModelChoice,
@@ -442,7 +481,9 @@ class BookAgent:
                 "--parallel", str(self.opt.parallel), "--no-color"]
         if glossary:
             argv += ["--glossary", str(glossary)]
-        if self.refine_on:
+        if self.opt.polish_only:
+            argv += ["--refine-only"]
+        elif self.refine_on:
             argv += ["--refine"]
         args = build_parser().parse_args(argv)
         job = JobConfig.from_cli_args(args)
@@ -463,7 +504,8 @@ class BookAgent:
 
         def on_stats(stats):
             total = stats.get("total_chunks", 0) or 0
-            if total and activity.phase() == "translate":      # the polish pass counts something else
+            # the polish pass after a translation counts something else
+            if total and (self.opt.polish_only or activity.phase() == "translate"):
                 self._chunk_stats = dict(stats)
             if time.time() - seen["at"] >= 2 and total:
                 seen["at"] = time.time()
@@ -471,23 +513,49 @@ class BookAgent:
                     phase = (manager.get_job(job_id) or {}).get("job_phase") or "translate"
                 except Exception:
                     phase = "translate"
+                if self.opt.polish_only:
+                    phase = "refine"
                 self._live = (vol, int(100 * (stats.get("completed_chunks", 0) or 0) / total), phase)
                 self._write_status("running", *self._live)
 
         self._chunk_stats, self._resumed = {}, resume
-        polishing = bool(resume and self.refine_on
-                         and (manager.get_job(job_id) or {}).get("job_phase") == "refine")
+        polishing = self.opt.polish_only or bool(
+            resume and self.refine_on and (manager.get_job(job_id) or {}).get("job_phase") == "refine")
         activity.set_phase("refine" if polishing else "translate")
         self._live = (vol, 0, "refine" if polishing else "translate")
         self.clock.start(stages_mod.REFINE if polishing else stages_mod.TRANSLATE, vol.index)
+        # A polish pass that follows a translation keeps its own cache (the job runner's).
+        cache = Path(vol.output + chunk_cache.SUFFIX)
+        if self.opt.polish_only:
+            chunk_cache.use(cache)
         try:
             self._write_status("running", *self._live)
             result = run_cli_job(job, cli_logger, translation_id=job_id,
                                  checkpoint_manager=manager, is_resume=resume, on_stats=on_stats)
         finally:
+            chunk_cache.use(None)
             self.clock.stop()
         vol.error = result.error or ""
+        if self.opt.polish_only and result.status is JobStatus.COMPLETED:
+            cache.unlink(missing_ok=True)
+            for partial in find_partial_output_paths(vol.output):     # left by an earlier pause
+                Path(partial).unlink(missing_ok=True)
+            if self._unchanged(vol):
+                Path(vol.output).unlink(missing_ok=True)
+                vol.job_id = f"{job_id.split('_r')[0]}_r{int(time.time())}"
+                vol.error = NOTHING_POLISHED
+                self.say(f"Volume {vol.index}: {NOTHING_POLISHED}")
+                return JobStatus.FAILED
         return result.status
+
+    @staticmethod
+    def _unchanged(vol: VolumeState) -> bool:
+        """Did the polish pass leave every page as it was?"""
+        try:
+            return final_check.same_text(Path(vol.source), Path(vol.output))
+        except Exception as exc:  # the final check will say what is wrong with the file
+            logger.warning("Cannot compare volume %d with its source: %s", vol.index, exc)
+            return False
 
     @staticmethod
     def _boilerplate_names(vol: VolumeState) -> List[str]:
@@ -617,6 +685,10 @@ class BookAgent:
         output = Path(vol.output)
         if not output.exists():
             return
+        if self.opt.polish_only:        # the user's file: nothing is removed or rewritten
+            vol.title = read_metadata(output).get("title", "")
+            vol.metadata_missing = audit_metadata(output, target_language=self.opt.target_language)
+            return
         self._drop_boilerplate(vol)
         entries = self._glossary_entries()
         self._note_names(vol, entries)
@@ -662,6 +734,11 @@ class BookAgent:
 
     # -------------------------------------------------------------------- run
     def run(self) -> int:
+        refused = self._cannot_polish() if self.opt.polish_only else ""
+        if refused:
+            self.say(refused)
+            return 2
+        self.state.polish_only = self.opt.polish_only
         self.workdir.mkdir(parents=True, exist_ok=True)
         from src.utils.unified_logger import setup_cli_logger
         cli_logger = setup_cli_logger(enable_colors=False)
@@ -719,6 +796,7 @@ class BookAgent:
         glossary = asyncio.run(self._glossary(profile, volumes))
         self.state.glossary = str(glossary or "")
         self.refine_on = profile.is_fiction if self.opt.refine is None else self.opt.refine
+        self.refine_on = self.refine_on or self.opt.polish_only
         asyncio.run(self._style_and_calibrate(profile, volumes, glossary, choice))
         self._save_state()
         self.clock.stop()
@@ -727,11 +805,24 @@ class BookAgent:
             self.say("Stopped after the preparation (--glossary-only). Review glossary.json, "
                      "style.md and calibration.md, edit them, then run again.")
             return 0
-        if self.refine_on:
+        if self.opt.polish_only:
+            self.say("Polish only: the file is not translated; its text is refined without "
+                     "changing meaning, names or terms")
+        elif self.refine_on:
             self.say("Polish pass: on (the translated text is refined without changing "
                      "meaning, names or terms)")
 
         return self._translate_all(profile, choice, glossary, cli_logger)
+
+    def _cannot_polish(self) -> str:
+        """Why this input cannot be polished on its own ('' when it can)."""
+        source = Path(self.opt.input_path)
+        if source.is_dir() or source.suffix.lower() != ".epub":
+            return "Polish only works on one EPUB file."
+        if self.state.volumes and not self.state.polish_only:
+            return (f"{self.workdir} holds a translation: polish only needs its own book folder "
+                    "(leave out --workdir).")
+        return ""
 
     def _redo_volumes(self) -> None:
         """Mark the selected volumes for translation again, keeping the old output."""
@@ -740,6 +831,7 @@ class BookAgent:
             if self.opt.only_volumes and vol.index not in self.opt.only_volumes:
                 continue
             output = Path(vol.output)
+            Path(vol.output + chunk_cache.SUFFIX).unlink(missing_ok=True)
             if output.exists():
                 archive.mkdir(exist_ok=True)
                 output.replace(archive / f"{output.stem}.{int(time.time())}{output.suffix}")
@@ -796,11 +888,13 @@ class BookAgent:
 
     def _check_volume(self, vol: VolumeState, profile: BookProfile) -> None:
         """The last stage: is the finished volume whole and sound? Writes check.json."""
-        upload = Path(self.state.source) if len(self.state.volumes) == 1 and self.state.source else None
+        whole = len(self.state.volumes) == 1 and self.state.source and not self.opt.polish_only
+        upload = Path(self.state.source) if whole else None
         try:
             checks = final_check.check_volume(
                 Path(vol.source), Path(vol.output), upload=upload, entries=self._glossary_entries(),
-                source_language=profile.source_language, target_language=self.opt.target_language)
+                source_language=profile.source_language, target_language=self.opt.target_language,
+                polished=self.opt.polish_only)
             report = final_check.write_report(self.workdir, {vol.index: checks})
         except Exception as exc:  # a check that cannot run must not lose the translation
             logger.warning("Final check of volume %d failed: %s", vol.index, exc)
@@ -846,6 +940,7 @@ class BookAgent:
             profile=self.opt.profile, source_language=profile.source_language,
             target_language=self.opt.target_language, polish=self.refine_on,
             parallel=self.opt.parallel, chunk_tokens=self.opt.max_tokens_per_chunk,
+            mode=MODE_POLISH if self.opt.polish_only else None,
             resumed=self._resumed, seconds=round(time.time() - started, 1),
             models=activity.take_models(),
             chunks_total=stats.get("total_chunks"), chunks_failed=stats.get("failed_chunks"),

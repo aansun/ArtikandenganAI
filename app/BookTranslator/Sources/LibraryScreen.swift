@@ -163,7 +163,8 @@ struct LibraryScreen: View {
                     .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
                 Text(book.authorName).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
                 HStack(spacing: 6) {
-                    Pill(text: loc.t(book.kind.key), bg: book.kind.pillBg, fg: book.kind.pillFg)
+                    Pill(text: loc.t(book.isPolishOnly ? "library.polished" : book.kind.key),
+                         bg: book.kind.pillBg, fg: book.kind.pillFg)
                     if attention {
                         let failed = book.check?.overall == "fail"
                         Pill(text: loc.t("library.check"), bg: failed ? Theme.dangerBg : Theme.warnBg, fg: failed ? Theme.danger : Theme.warnText)
@@ -194,7 +195,8 @@ struct LibraryScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(book.title).font(.system(size: 15, weight: .semibold)).lineLimit(2).multilineTextAlignment(.leading)
                     Text(book.authorName).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
-                    Text([loc.t(book.kind.key), book.volumes.count > 1 ? loc.volumes(book.volumes.count) : ""]
+                    Text([loc.t(book.kind.key), book.volumes.count > 1 ? loc.volumes(book.volumes.count) : "",
+                          book.isPolishOnly ? loc.t("library.polished") : ""]
                         .filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 11)).foregroundStyle(Theme.faint).lineLimit(1)
                 }
