@@ -157,64 +157,51 @@ private struct ModeSwitch: View {
     var book: QueueBook
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             segment("mode.translate", value: false)
             segment("mode.polish", value: true)
         }
-        .padding(2).background(Theme.neutralBg, in: RoundedRectangle(cornerRadius: 7))
+        .padding(2)
+        .background(Theme.neutralBg, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.buttonLine))
         .help(loc.t("input.modeHelp"))
     }
 
     private func segment(_ key: String, value: Bool) -> some View {
         let on = book.polishOnly == value
         return Button { model.setPolishOnly(book.id, value) } label: {
-            Text(loc.t(key)).font(.system(size: 11, weight: on ? .semibold : .regular)).foregroundStyle(Theme.ink)
+            Text(loc.t(key)).font(.system(size: 11.5, weight: on ? .semibold : .regular))
+                .foregroundStyle(on ? Theme.onAccent : Theme.ink)
                 .lineLimit(1).fixedSize()
-                .padding(.horizontal, 8).padding(.vertical, 2)
-                .background(on ? Theme.selectedSeg : .clear, in: RoundedRectangle(cornerRadius: 5))
-                .shadow(color: .black.opacity(on ? 0.18 : 0), radius: 1, y: 1)
+                .padding(.horizontal, 9).frame(height: UploadedRow.controlHeight - 4)
+                .background(on ? Theme.accent : .clear, in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
+/// A book not yet chosen: what it is on the left, how it will be handled on the right. When the card is too
+/// narrow for one line, the controls take a line of their own, still on the right.
 private struct UploadedRow: View {
+    static let controlHeight: CGFloat = 26
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
     var book: QueueBook
 
     var body: some View {
-        HStack(spacing: 12) {
-            GripDots()
-            CoverView(title: book.title, image: model.queueCovers[book.id], width: 34, height: 48, radius: 3)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
-                if book.stage == .reading {
-                    HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(loc.t("input.reading")) }
-                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
-                } else {
-                    Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.shownVolumes))")
-                        .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
-                    if book.canPolishOnly { ModeSwitch(book: book).padding(.vertical, 2) }
-                    Text(loc.t(book.polishOnly ? "input.hintPolish"
-                               : (book.kind == .fiction ? "input.hintFiction" : "input.hintNonfiction")))
-                        .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                lead
+                info.frame(minWidth: 160, idealWidth: 160, maxWidth: .infinity, alignment: .leading)
+                if book.stage != .reading { controls }
             }
-            Spacer(minLength: 4)
-            if book.stage != .reading {
-                Button { model.toggleKind(book.id) } label: {
-                    HStack(spacing: 4) {
-                        Text(loc.t(book.kind.key))
-                        Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy))
-                    }
-                    .font(.system(size: 11, weight: .medium)).foregroundStyle(book.kind.pillFg)
-                    .padding(.horizontal, 9).padding(.vertical, 3).background(book.kind.pillBg, in: Capsule())
-                }.buttonStyle(.plain).help(loc.t("input.kindHelp"))
-                Button(loc.t("input.prepare")) { model.makeReady(book.id) }
-                    .buttonStyle(GhostButtonStyle(tint: Theme.accent))
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 12) {
+                    lead
+                    info.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if book.stage != .reading { controls }
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
@@ -222,6 +209,50 @@ private struct UploadedRow: View {
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.rowBorder))
         .draggable(book.id.uuidString)
         .contextMenu { Button(loc.t("input.remove"), role: .destructive) { model.remove(book.id) } }
+    }
+
+    private var lead: some View {
+        HStack(spacing: 12) {
+            GripDots()
+            CoverView(title: book.title, image: model.queueCovers[book.id], width: 34, height: 48, radius: 3)
+        }
+    }
+
+    private var info: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(book.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
+            if book.stage == .reading {
+                HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(loc.t("input.reading")) }
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted)
+            } else {
+                Text("\(book.author.isEmpty ? "" : book.author + " · ")\(loc.volumes(book.shownVolumes))")
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(loc.t(book.polishOnly ? "input.hintPolish"
+                           : (book.kind == .fiction ? "input.hintFiction" : "input.hintNonfiction")))
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// How the book is handled, as one group: translate or polish, fiction or not, and Add.
+    private var controls: some View {
+        HStack(spacing: 8) {
+            if book.canPolishOnly { ModeSwitch(book: book) }
+            Button { model.toggleKind(book.id) } label: {
+                HStack(spacing: 4) {
+                    Text(loc.t(book.kind.key))
+                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy))
+                }
+                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(book.kind.pillFg)
+                .lineLimit(1).fixedSize()
+                .frame(width: 80, height: Self.controlHeight)      // one width: the rows line up
+                .background(book.kind.pillBg, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+            }.buttonStyle(.plain).help(loc.t("input.kindHelp"))
+            Button(loc.t("input.prepare")) { model.makeReady(book.id) }
+                .buttonStyle(GhostButtonStyle(tint: Theme.accent)).fixedSize()
+        }
     }
 }
 
