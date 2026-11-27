@@ -66,7 +66,7 @@ def test_a_translated_book_is_polished_and_checked_not_translated(env):
     assert any(is_polish(c) for c in made)
     assert not any("<NER_JSON>" in c["system"] + c["prompt"] for c in made)      # no glossary
     assert not (work(env) / "glossary.json").exists() and not (work(env) / "calibration.md").exists()
-    assert any("saya and Anda" in c["system"] + c["prompt"] for c in made if is_polish(c))   # the style
+    assert any("Past tense, plain diction" in c["system"] + c["prompt"] for c in made if is_polish(c))   # the style
     assert not any(is_translation(c) and not is_polish(c) and "Hello" in c["prompt"] for c in made)
 
     with zipfile.ZipFile(volume["output"]) as z:
@@ -106,7 +106,7 @@ def test_a_paused_polish_goes_on_where_it_stopped_without_the_flag(env, monkeypa
     source = mine(env, volumes=1, chapters=3)
     claude_failing_for(env, monkeypatch, ["Polish this Indonesian translation", "chapter 3"],
                        429, "Usage limit reached")
-    assert translate_book.main(["-i", str(source), *POLISH, "--chunk-tokens", "40"]) == 1
+    assert translate_book.main(["-i", str(source), *POLISH, "--chunk-tokens", "40"]) == 3     # waiting
     assert book(env)["volumes"][0]["status"] == "rate_limited"
     cache = list((work(env) / "translation").glob("*.polish-cache.jsonl"))
     assert cache and cache[0].read_text().strip()

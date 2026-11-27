@@ -73,6 +73,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--engines", default=os.getenv("AGENT_ENGINES", ""),
                    help="With auto: the engines to consider and their order, e.g. codex,claude "
                         "(default: claude,codex,agy,opencode, or $AGENT_ENGINES).")
+    p.add_argument("--one-engine", action="store_true",
+                   help="With auto: use only the book's own engine and model; when its usage limit "
+                        "is reached the run stops with exit code 3 until it can go on. Default: "
+                        "the next engine takes over, following a sample of the book's voice.")
     p.add_argument("--refresh-engines", action="store_true",
                    help="Probe the engines again instead of using the result kept a few minutes.")
     p.add_argument("--no-log", dest="log", action="store_false",
@@ -162,7 +166,7 @@ def _options(args, input_path: Path, root: Path) -> AgentOptions:
         glossary_only=args.glossary_only, refine=args.refine,
         keep_original_title=args.keep_original_title, refresh_metadata=args.refresh_metadata,
         max_tokens_per_chunk=args.chunk_tokens, parallel=args.parallel, effort=args.effort,
-        polish_only=args.polish_only)
+        polish_only=args.polish_only, keep_model=args.one_engine)
 
 
 def _say(message: str) -> None:
@@ -247,7 +251,7 @@ def _selfcheck() -> int:
              "src.core.llm.providers.agy", "src.core.llm.providers.opencode_cli",
              "src.core.llm.providers.chain", "src.core.agent.models",
              "src.core.agent.log_report", "src.core.llm.activity", "src.core.agent.series",
-             "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check"]
+             "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check", "src.core.llm.voice"]
     missing = []
     for name in names:
         try:

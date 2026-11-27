@@ -27,6 +27,7 @@ from .provider_config import (
 )
 from .providers.agy import AgyProvider
 from .providers.chain import ChainProvider
+from .voice import Voice
 from .providers.claude_cli import ClaudeCLIProvider
 from .providers.codex_cli import CodexProvider
 from .providers.opencode_cli import OpenCodeProvider
@@ -241,7 +242,10 @@ def create_llm_provider(
             links.append((engine, spec.get("model", "")))
         if not links:
             raise LLMClientConfigError("the 'chain' provider needs at least one engine")
-        return ChainProvider(links, log_callback=cfg.log_callback, **common)
+        voice = opts.get("voice") or {}     # {"path", "main"}: the sample the engines follow
+        return ChainProvider(links, log_callback=cfg.log_callback,
+                             voice=Voice(voice["path"], voice.get("main", "")) if voice.get("path") else None,
+                             **common)
     if cfg.provider == "agy-claude":
         # agy first, the claude CLI as backup (see providers/fallback.py).
         primary = AgyProvider(

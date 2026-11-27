@@ -105,7 +105,7 @@ async def _probe(name: str) -> Engine:
     return inactive(reason)
 
 
-def _state_word(engine: Engine) -> str:
+def state_word(engine: Engine) -> str:
     """Why an engine is or is not usable, as one word (its reason may name the account)."""
     if engine.active:
         return "ok"
@@ -156,7 +156,7 @@ def detect_engines(order: Optional[Sequence[str]] = None, *, cache_path: Optiona
             found[engine.name] = engine
         activity.record("engines", engines=[
             {"engine": n, "active": found[n].active, "models": found[n].models,
-             "state": _state_word(found[n])} for n in names])
+             "state": state_word(found[n])} for n in names])
         if cache_path:
             try:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)

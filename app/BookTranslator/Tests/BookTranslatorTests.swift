@@ -103,7 +103,8 @@ final class ModelDecodingTests: XCTestCase {
 @MainActor
 final class QueueTests: XCTestCase {
     /// These tests run in the app's own defaults: put back every setting they change.
-    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode", "verifiedBooks"]
+    private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode", "verifiedBooks",
+                                      "keepModel"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -249,6 +250,30 @@ final class QueueTests: XCTestCase {
         m.books[0].stage = .queued                            // started: the choice is fixed
         m.setPolishOnly(m.books[0].id, true)
         XCTAssertFalse(m.books[0].polishOnly)
+    }
+
+    func testWaitingForALimitKeepsTheBookFirstInLine() throws {
+        let m = model()                      // no engine folder: nothing actually runs
+        m.paused = true
+        XCTAssertFalse(m.baseArguments(book("A", stage: .queued)).contains("--one-engine"))
+        m.keepModel = true
+        XCTAssertTrue(m.baseArguments(book("A", stage: .queued)).contains("--one-engine"))
+        m.books = [book("A", stage: .translating), book("B", stage: .queued)]
+        try FileManager.default.createDirectory(at: m.env.booksDir, withIntermediateDirectories: true)
+        let status = #"{"state":"waiting","book":"a","title":"A","volume":0,"volumes":1,"pct":0,"engine":"Claude"}"#
+        try Data(status.utf8).write(to: m.env.statusFile)
+        m.waitForLimit(m.books[0].id, folder: "a", stage: .approved, started: Date())
+        let waiting = m.books[0]
+        XCTAssertEqual(waiting.stage, .approved)
+        XCTAssertEqual(waiting.workdir, "a")
+        XCTAssertEqual(waiting.waitingFor, "Claude")
+        XCTAssertEqual(try XCTUnwrap(waiting.retryAt).timeIntervalSinceNow, AppModel.retryDelay, accuracy: 5)
+        XCTAssertEqual(m.currentBook?.id, waiting.id)          // shown on Progress, with its reason
+        let saved = try JSONDecoder().decode([QueueBook].self, from: JSONEncoder().encode(m.books))
+        XCTAssertEqual(saved[0].waitingFor, "Claude")
+        XCTAssertNotNil(saved[0].retryAt)
+        m.keepModel = false                                    // switching allowed: no reason to wait
+        XCTAssertLessThanOrEqual(try XCTUnwrap(m.books[0].retryAt), Date())
     }
 
     func testTheReadyCardWordingFollowsItsBooks() {

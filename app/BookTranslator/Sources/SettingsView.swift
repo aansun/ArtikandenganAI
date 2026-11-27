@@ -54,6 +54,11 @@ struct SettingsView: View {
                         Toggle("", isOn: $model.polishNovels).labelsHidden().toggleStyle(.switch).tint(Theme.green)
                     }
                     divider
+                    row(loc.t("settings.limit"), loc.t(model.keepModel ? "settings.limit.waitHint" : "settings.limit.switchHint")) {
+                        Segmented(items: [(false, loc.t("settings.limit.switch")), (true, loc.t("settings.limit.wait"))],
+                                  selection: $model.keepModel, fontSize: 13, hPad: 12)
+                    }
+                    divider
                     row(loc.t("settings.parallel"), loc.t("settings.parallelHint")) {
                         Segmented(items: AppModel.parallelChoices.map { ($0, "\($0)") },
                                   selection: $model.parallelRequests, fontSize: 13, hPad: 14)

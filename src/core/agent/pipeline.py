@@ -25,6 +25,11 @@ split, no cleaning and no glossary are made. Its style guide is written, the eng
 refine-only pass polishes it, and the result is checked against the upload. The text of
 the user's translation is the only thing that changes.
 
+A book has one main engine (auto mode): the one it began with, or the one that wrote its
+series. It is asked first on every run. When it fails or reaches its usage limit the others
+take over and are shown a sample of its writing (``voice.json``), so the voice carries on.
+With ``keep_model`` no other engine is used: the run stops with ``EXIT_WAITING`` instead.
+
 Progress is kept in ``state.json`` and the engine's own checkpoints, so a stopped
 run (usage limit, crash, redeploy) continues where it left off.
 """
@@ -37,7 +42,7 @@ import json
 import logging
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -60,6 +65,8 @@ from src.core.agent.volumes import Volume, slugify, split_into_volumes
 from src.core.auto_prep import extract_source_text
 from src.core.job import JobConfig, JobStatus
 from src.core.llm import ProviderConfig, activity, create_llm_provider
+from src.core.llm.exceptions import RateLimitError
+from src.core.llm.providers.chain import last_engine
 from src.core.refine import chunk_cache
 from src.utils.file_utils import find_partial_output_paths
 
@@ -73,6 +80,9 @@ CLASSIFIER_TIER = "haiku"
 DEFAULT_CHUNK_TOKENS = 1800
 
 STATUS_PENDING = "pending"
+#: Exit code of a run stopped by a usage limit: the same command later goes on.
+EXIT_WAITING = 3
+ENGINE_LABELS = {"claude-cli": "Claude", "codex": "Codex", "agy": "Antigravity", "opencode": "OpenCode"}
 #: The book folder of a polish-only run, so it never mixes with a translation of the same file.
 POLISH_FOLDER_SUFFIX = "_polish"
 MODE_TRANSLATE, MODE_POLISH = "translate", "polish"
@@ -107,6 +117,7 @@ class AgentOptions:
     refresh_engines: bool = False              # probe the engines again, ignoring the cache
     style: str = "auto"                        # auto | formal | santai | sastra
     polish_only: bool = False                  # the upload is already translated: polish and check it
+    keep_model: bool = False                   # auto mode: wait for the main engine, never switch
 
 
 @dataclass
@@ -136,6 +147,7 @@ class RunState:
     glossary_terms: int = 0
     volumes: List[VolumeState] = field(default_factory=list)
     polish_only: bool = False
+    lock: Dict[str, str] = field(default_factory=dict)   # {"engine", "model"}: this book's main engine
 
 
 def parse_volume_selection(text: str) -> Set[int]:
@@ -210,8 +222,9 @@ class BookAgent:
         self.workdir.mkdir(parents=True, exist_ok=True)
         tmp = self.state_path.with_suffix(".tmp")
         data = asdict(self.state)
-        if not data["polish_only"]:         # a translation's state stays readable by older versions
-            del data["polish_only"]
+        for name in ("polish_only", "lock"):    # unused fields stay out: older versions can read it
+            if not data[name]:
+                del data[name]
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(self.state_path)
         self._write_book_json()
@@ -231,6 +244,7 @@ class BookAgent:
             "source": self.state.source,
             "series": self._series.name if self._series else "",
             "translate_provider": self.state.provider,
+            "engine": self.state.lock.get("engine", ""),
             "model": self.state.model,
             "backup_model": self.state.backup_model,
             "glossary": self.state.glossary,
@@ -277,6 +291,71 @@ class BookAgent:
         if self.opt.effort:
             options["effort"] = self.opt.effort
         return create_llm_provider(ProviderConfig(provider=provider, model=model, options=options))
+
+    def _series_engine(self, volumes: List[Volume]) -> str:
+        """The engine that wrote the other books of this series ('' when none says)."""
+        for folder in self._series_books(volumes):
+            try:
+                state = json.loads((folder / "state.json").read_text(encoding="utf-8"))
+                if state.get("lock", {}).get("engine"):
+                    return state["lock"]["engine"]
+            except (OSError, ValueError, AttributeError):
+                continue
+        return ""
+
+    def _use_book_engine(self, volumes: List[Volume]) -> int:
+        """Put the book's main engine first, or leave only it when the book must not switch.
+        Returns the exit code to stop with, else 0."""
+        found = self._active_engines()
+        active = [e for e in found if e.active]
+        wanted = (self.state.lock.get("engine") or self._series_engine(volumes)
+                  or (active[0].name if active else ""))
+        engine = next((e for e in found if e.name == wanted), None)
+        usable = engine is not None and engine.active
+        if self.opt.keep_model and not usable:
+            if engine is not None and engines_mod.state_word(engine) == "quota":
+                return self._wait_for(engine.label)
+            self.clock.stop()
+            why = engine.reason[:80] if engine else "it is not one of the engines of this run"
+            self.say(f"This book is written by {engine.label if engine else wanted}, which cannot be "
+                     f"used now ({why}). Fix it, or run without --one-engine to go on with another "
+                     "engine.")
+            return 2
+        if self.state.lock.get("engine") != wanted:
+            self.state.lock = {"engine": wanted}
+        first = [engine] if usable else []
+        others = [] if self.opt.keep_model else [e for e in active if e is not engine]
+        ordered = first + others
+        self.engines = ([replace(e, role="main" if i == 0 else "backup") for i, e in enumerate(ordered)]
+                        + [e for e in found if not e.active])
+        self._engines_ready = True
+        if self.opt.keep_model:
+            self.say(f"One model for the whole book: {engine.label}. If its usage limit is reached "
+                     "the run waits for it and does not switch.")
+        elif not usable and active:
+            self.say(f"{engine.label if engine else wanted} writes this book but cannot be used now: "
+                     f"{ordered[0].label} goes on, following its voice sample.")
+        return 0
+
+    def _voice_option(self) -> Dict[str, str]:
+        """Where the book's voice sample is kept, and whose writing it should hold."""
+        main = next((e.provider for e in self.engines if e.name == self.state.lock.get("engine")), "")
+        return {"path": str(self.workdir / "voice.json"), "main": main}
+
+    def _wait_for(self, label: str) -> int:
+        """Stop until a usage limit has passed, and say so in status.json for the app."""
+        self.clock.stop()
+        self.say(f"Waiting for {label}: the usage limit is reached. Run the same command later "
+                 "to continue.")
+        self._write_status("waiting", waiting_for=label)
+        return EXIT_WAITING
+
+    def _limited_engine(self, provider: str = "") -> str:
+        if self.opt.keep_model:
+            for engine in self.engines:
+                if engine.name == self.state.lock.get("engine"):
+                    return engine.label
+        return ENGINE_LABELS.get(provider, "the AI tool")
 
     def _split(self, source: Path) -> List[Volume]:
         """Volumes of this book; a previous run's split is reused as is."""
@@ -437,6 +516,9 @@ class BookAgent:
             self.style_text = await style_mod.build_style_guide(
                 text, profile, self.opt.target_language, terms, style_provider, style_path,
                 direction=f"{name}. {meaning}")
+        if self.opt.polish_only and style_mod.KEEP_PRONOUNS_TITLE not in self.style_text:
+            self.style_text = style_mod.keep_pronouns(self.style_text)
+            style_path.write_text(self.style_text, encoding="utf-8")
         prompt_options["custom_instructions"] = self.style_text
 
         calibration = self.workdir / "calibration.md"
@@ -453,6 +535,7 @@ class BookAgent:
             options["backup_model"] = choice.backup_model
         if choice.chain:
             options["chain"] = list(choice.chain)
+            options["voice"] = self._voice_option()
         if self.opt.effort:
             options["effort"] = self.opt.effort
         prompt_options = dict(job.prompt_options or {})
@@ -659,11 +742,9 @@ class BookAgent:
         self._write_status("running", vol, pct, phase)
 
     def _write_status(self, state: str, vol: Optional[VolumeState] = None, pct: int = 0,
-                      phase: str = "translate") -> None:
+                      phase: str = "translate", waiting_for: str = "") -> None:
         """books/status.json: what is running now, for the app (written atomically)."""
-        from src.core.llm.providers.chain import last_engine
-        engine = {"claude-cli": "Claude", "codex": "Codex", "agy": "Antigravity",
-                  "opencode": "OpenCode"}.get(last_engine(), "")
+        engine = waiting_for or ENGINE_LABELS.get(last_engine(), "")
         title = ((self.profile.title if self.profile else "") or self.workdir.name)
         data = {"state": state, "updated_at": _now(), "book": self.workdir.name, "title": title,
                 "volume": vol.index if vol else 0, "volumes": len(self.state.volumes), "pct": pct,
@@ -734,6 +815,12 @@ class BookAgent:
 
     # -------------------------------------------------------------------- run
     def run(self) -> int:
+        try:
+            return self._run()
+        except RateLimitError as limit:       # while preparing: a volume reports its own
+            return self._wait_for(self._limited_engine(limit.provider or ""))
+
+    def _run(self) -> int:
         refused = self._cannot_polish() if self.opt.polish_only else ""
         if refused:
             self.say(refused)
@@ -753,6 +840,10 @@ class BookAgent:
         if self.auto and not self.opt.refresh_metadata:
             self._active_engines()
             if not any(e.active for e in self.engines):
+                limited = [e for e in self.engines if engines_mod.state_word(e) == "quota"]
+                if limited:
+                    locked = self.state.lock.get("engine")
+                    return self._wait_for(next((e for e in limited if e.name == locked), limited[0]).label)
                 self.say("No translation engine is active. Install and sign in to at least one of "
                          "claude, codex, agy or opencode, then try again. Found: "
                          + "; ".join(f"{e.label}: {e.reason}" for e in self.engines))
@@ -766,8 +857,18 @@ class BookAgent:
         if self.opt.redo:
             self._redo_volumes()
             (self.workdir / final_check.REPORT).unlink(missing_ok=True)
-        choice = choose_model(profile.genre, profile=self.opt.profile, override=self.opt.model,
+        placing = self.auto and not self.opt.refresh_metadata
+        if placing:
+            stop = self._use_book_engine(volumes)
+            if stop:
+                return stop
+        first = next((e.name for e in self.engines if e.active), "")
+        own = placing and first == self.state.lock.get("engine")    # the book's engine answers first
+        override = self.opt.model or (self.state.lock.get("model") if own else None)
+        choice = choose_model(profile.genre, profile=self.opt.profile, override=override,
                               provider=self.opt.translate_provider, engines=self.engines)
+        if own:                 # its model stays too, whatever the quality setting says later
+            self.state.lock["model"] = choice.model
         self.state.provider = self.opt.translate_provider
         self.state.model = choice.model
         self.state.backup_model = choice.backup_model or ""
@@ -827,6 +928,9 @@ class BookAgent:
     def _redo_volumes(self) -> None:
         """Mark the selected volumes for translation again, keeping the old output."""
         archive = self.workdir / "previous"
+        if not self.opt.only_volumes:       # all of it again: the engine is chosen anew
+            self.state.lock = {}
+            (self.workdir / "voice.json").unlink(missing_ok=True)
         for vol in self.state.volumes:
             if self.opt.only_volumes and vol.index not in self.opt.only_volumes:
                 continue
@@ -845,6 +949,7 @@ class BookAgent:
     def _translate_all(self, profile: BookProfile, choice: ModelChoice, glossary: Optional[Path],
                        cli_logger) -> int:
         started = time.time()
+        limited = False
         for vol in self.state.volumes:
             if self.opt.only_volumes and vol.index not in self.opt.only_volumes:
                 continue
@@ -880,11 +985,12 @@ class BookAgent:
             self._save_state()
             self._log_volume(vol, profile, choice, volume_started)
             if status is JobStatus.RATE_LIMITED:
-                self.say("Usage limit reached: stopping. Run the same command later to continue.")
+                limited = True
                 break
 
         self._write_status("idle")
-        return self._report(time.time() - started)
+        code = self._report(time.time() - started)
+        return self._wait_for(self._limited_engine(last_engine())) if limited else code
 
     def _check_volume(self, vol: VolumeState, profile: BookProfile) -> None:
         """The last stage: is the finished volume whole and sound? Writes check.json."""

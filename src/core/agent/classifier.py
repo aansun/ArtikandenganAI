@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.core.agent.routing import FICTION_GENRES
+from src.core.llm.exceptions import RateLimitError
 from src.utils import document_sampler
 
 logger = logging.getLogger("core.agent.classifier")
@@ -118,6 +119,8 @@ async def classify_book(text: str, filename: str, llm_provider, *, model: Option
                                     target_language=target_language),
             system_prompt=_SYSTEM, model=model,
         )
+    except RateLimitError:      # not an answer: the run waits instead of keeping a guess
+        raise
     except Exception as exc:  # classification must never block the run
         logger.warning("Book classification failed (%s); using the heuristic", exc)
         return fallback

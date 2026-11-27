@@ -67,6 +67,17 @@ final class AppModel {
     var parallelRequests: Int = AppModel.clampParallel(UserDefaults.standard.integer(forKey: "parallelRequests")) {
         didSet { UserDefaults.standard.set(parallelRequests, forKey: "parallelRequests") }
     }
+    /// On: a book is written by one engine only, and waits when its usage limit is reached.
+    /// Off (the default): the next engine takes over, following the book's voice.
+    var keepModel: Bool = UserDefaults.standard.bool(forKey: "keepModel") {
+        didSet {
+            UserDefaults.standard.set(keepModel, forKey: "keepModel")
+            if !keepModel { books.filter { $0.retryAt != nil }.forEach { retryNow($0.id) } }
+        }
+    }
+    /// The engine's exit code for "stopped by a usage limit", and how long until the next try.
+    static let waitingExit: Int32 = 3
+    static let retryDelay: TimeInterval = 20 * 60
     static let parallelChoices = 1...3
     static func clampParallel(_ value: Int) -> Int { min(max(value, parallelChoices.lowerBound), parallelChoices.upperBound) }
     var notifyVolume: Bool = UserDefaults.standard.object(forKey: "notifyVolume") as? Bool ?? true {
@@ -243,7 +254,8 @@ final class AppModel {
     /// was stopped part way (paused, or the app was closed) and goes on from there.
     var currentBook: QueueBook? {
         running ?? books.first {
-            [.approved, .queued].contains($0.stage) && $0.workdir != nil && ($0.pct > 0 || !$0.times.isEmpty)
+            [.approved, .queued].contains($0.stage)
+                && ($0.retryAt != nil || ($0.workdir != nil && ($0.pct > 0 || !$0.times.isEmpty)))
         }
     }
     var isBusy: Bool { runningID != nil }
@@ -454,6 +466,12 @@ final class AppModel {
 
     func resume() { start() }
 
+    /// Try a waiting book at once instead of at its set time.
+    func retryNow(_ id: QueueBook.ID) {
+        update(id) { if $0.retryAt != nil { $0.retryAt = Date() } }
+        start()
+    }
+
     func retry(_ id: QueueBook.ID) {
         update(id) { $0.error = ""; $0.stage = $0.workdir == nil ? .queued : .approved }
         start()
@@ -471,16 +489,23 @@ final class AppModel {
 
     private func runLoop() async {
         if engines.isEmpty { engines = (try? await BackendClient.detect(env)) ?? [] }
-        guard hasActiveEngine else { lastError = Loc.shared.t("process.noEngine"); return }
+        // a book that waits for a usage limit may find no engine active until then
+        guard hasActiveEngine || books.contains(where: { $0.retryAt != nil }) else {
+            lastError = Loc.shared.t("process.noEngine"); return
+        }
         if keepAwake { activity = ProcessInfo.processInfo.beginActivity(options: [.idleSystemSleepDisabled, .userInitiated], reason: "Translating books") }
         defer {
             if let activity { ProcessInfo.processInfo.endActivity(activity) }
             activity = nil
         }
         while !paused, let next = nextBook() {
+            if let at = next.retryAt, at > Date() {              // the queue keeps its order: wait
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                continue
+            }
             runningID = next.id
             if next.stage == .queued && reviewsFirst(next) {      // not confirmed yet
-                if next.workdir == nil { await prepare(next) } else { askForReview(next) }
+                if next.workdir == nil || next.needsPrepare { await prepare(next) } else { askForReview(next) }
             } else {
                 await translate(next)
             }
@@ -495,6 +520,7 @@ final class AppModel {
         var args = ["--profile", quality, book.kind == .fiction ? "--fiction" : "--non-fiction",
                     "-tl", book.targetLanguage ?? "Indonesian"]
         if book.style != "auto" { args += ["--style", book.style] }
+        if keepModel { args.append("--one-engine") }
         if book.polishOnly {                                   // one pass, one request at a time
             args.append("--polish-only")
         } else {
@@ -512,18 +538,27 @@ final class AppModel {
     }
 
     private func prepare(_ book: QueueBook) async {
-        update(book.id) { $0.stage = .preparing; $0.error = "" }
+        update(book.id) { $0.stage = .preparing; $0.error = ""; $0.retryAt = nil }
         let before = bookFolders()
-        let (code, tail) = await runEngine(["-i", inputPath(book), "--prepare-only"] + baseArguments(book), for: book.id)
+        let started = Date()
+        var args = ["-i", inputPath(book), "--prepare-only"] + baseArguments(book) + retryArguments(book)
+        if let workdir = book.workdir { args += ["--workdir", env.booksDir.appendingPathComponent(workdir).path] }
+        let (code, tail) = await runEngine(args, for: book.id)
         if paused && killedForPause {
             update(book.id) { $0.stage = .queued }
             return
         }
-        guard code == 0, let workdir = findWorkdir(for: book, before: before) else {
+        if code == Self.waitingExit {
+            update(book.id) { $0.needsPrepare = true }
+            waitForLimit(book.id, folder: book.workdir ?? findWorkdir(for: book, before: before),
+                         stage: .queued, started: started)
+            return
+        }
+        guard code == 0, let workdir = book.workdir ?? findWorkdir(for: book, before: before) else {
             fail(book.id, tail)
             return
         }
-        update(book.id) { $0.workdir = workdir }
+        update(book.id) { $0.workdir = workdir; $0.needsPrepare = false; $0.waitingFor = "" }
         loadCover(for: book.id)
         if let prepared = self.book(book.id), reviewsFirst(prepared) {
             askForReview(prepared)
@@ -538,8 +573,13 @@ final class AppModel {
     }
 
     private func translate(_ book: QueueBook) async {
-        update(book.id) { $0.stage = .translating; $0.error = ""; $0.pct = 0; $0.volume = max($0.volume, 0) }
-        var args = ["-i", inputPath(book)] + baseArguments(book) + (extraArguments[book.id] ?? [])
+        update(book.id) {
+            if $0.waitingFor.isEmpty { $0.pct = 0 }     // a retry keeps showing how far the book is
+            $0.stage = .translating; $0.error = ""; $0.retryAt = nil; $0.volume = max($0.volume, 0)
+        }
+        let started = Date()
+        var args = ["-i", inputPath(book)] + baseArguments(book) + retryArguments(book)
+            + (extraArguments[book.id] ?? [])
         if let workdir = book.workdir {
             args += ["--workdir", env.booksDir.appendingPathComponent(workdir).path]
         }
@@ -550,6 +590,11 @@ final class AppModel {
             return
         }
         let folder = book.workdir ?? findWorkdir(for: book, before: before)
+        if code == Self.waitingExit {
+            extraArguments[book.id]?.removeAll { $0 == "--redo" }     // begun: the next try goes on
+            waitForLimit(book.id, folder: folder, stage: .approved, started: started)
+            return
+        }
         if code == 0, let folder, let result = LibraryStore.read(folder: env.booksDir.appendingPathComponent(folder)),
            result.isComplete {
             var last = self.book(book.id) ?? book
@@ -565,6 +610,28 @@ final class AppModel {
         } else {
             update(book.id) { $0.workdir = $0.workdir ?? folder }
             fail(book.id, tail)
+        }
+    }
+
+    /// A book that has waited asks the engines again: the answer kept a few minutes may be the old one.
+    private func retryArguments(_ book: QueueBook) -> [String] {
+        book.waitingFor.isEmpty ? [] : ["--refresh-engines"]
+    }
+
+    /// The engine stopped at a usage limit: the book stays first in line and is tried again later.
+    func waitForLimit(_ id: QueueBook.ID, folder: String?, stage: Stage, started: Date) {
+        let engine = (try? Data(contentsOf: env.statusFile))
+            .flatMap { try? JSONDecoder.snake.decode(EngineStatus.self, from: $0) }?.engine.nonEmpty ?? "AI"
+        // said once, and again only after a run that got somewhere
+        let news = (book(id)?.waitingFor.isEmpty ?? true) || Date().timeIntervalSince(started) > 300
+        update(id) {
+            $0.stage = stage
+            $0.workdir = $0.workdir ?? folder
+            $0.waitingFor = engine
+            $0.retryAt = Date().addingTimeInterval(Self.retryDelay)
+        }
+        if news, let waiting = book(id) {
+            notify(Loc.shared.t("notify.waiting", engine), Loc.shared.t("notify.waitingBody", waiting.title))
         }
     }
 

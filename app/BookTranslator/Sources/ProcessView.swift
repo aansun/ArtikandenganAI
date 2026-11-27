@@ -75,6 +75,7 @@ struct ProcessView: View {
                             .font(.system(size: 13)).foregroundStyle(Theme.muted)
                     }
                     if live { engineLine }
+                    if !live, !model.paused, let at = book.retryAt { waitingLine(book, at: at) }
                     if !preparing {
                         HStack(spacing: 5) {
                             ForEach(1...max(book.shownVolumes, 1), id: \.self) { i in
@@ -91,9 +92,13 @@ struct ProcessView: View {
                         ProgressView().progressViewStyle(.linear).tint(Theme.accent)
                     }
                     HStack(spacing: 8) {
-                        Text(etaText(paused: paused)).font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        Text(!live && !model.paused && book.retryAt != nil ? loc.t("process.eta.waiting") : etaText(paused: paused))
+                            .font(.system(size: 13)).foregroundStyle(Theme.muted)
                         Spacer()
-                        if model.paused {
+                        if !live, !model.paused, book.retryAt != nil {
+                            Button(loc.t("process.pause")) { model.pause() }.buttonStyle(GhostButtonStyle())
+                            Button(loc.t("process.retryNow")) { model.retryNow(book.id) }.buttonStyle(PrimaryButtonStyle(radius: 8))
+                        } else if model.paused {
                             Button(loc.t("process.resume")) { model.resume() }.buttonStyle(PrimaryButtonStyle(radius: 8))
                         } else if live {
                             Button(loc.t("process.pause")) { model.pause() }.buttonStyle(GhostButtonStyle())
@@ -138,6 +143,12 @@ struct ProcessView: View {
         if i < book.volume { return Theme.green }
         if i == book.volume { return tint }
         return Theme.dotIdle
+    }
+
+    /// Why nothing moves, and until when.
+    private func waitingLine(_ book: QueueBook, at: Date) -> some View {
+        statusDot(loc.t("process.waitingLimit", book.waitingFor, at.formatted(date: .omitted, time: .shortened)), Theme.warnIcon)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder private var engineLine: some View {

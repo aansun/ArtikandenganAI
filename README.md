@@ -20,7 +20,8 @@ order, and they are translated one after another while you do something else.
 - **Consistent names.** For fiction the app first builds a glossary of characters, places and terms, so
   names are written the same way from the first page to the last, and it suggests a writing style that
   fits the book. Multi-volume novels are split and translated volume by volume.
-- **Sturdy.** If one AI tool runs out of quota or fails, the next one takes over by itself.
+- **Sturdy.** If one AI tool runs out of quota or fails, the next one takes over by itself and is
+  shown how the book is written so far. Or choose to wait, so one tool writes the whole book.
 - **A translation log you control.** Which model translated, how fast and how cleanly, kept on your Mac to
   improve the recommendations. No book text, and nothing is sent; switch it off in Settings
   ([what it records](docs/TRANSLATION_LOG.md)).

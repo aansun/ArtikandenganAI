@@ -51,7 +51,8 @@ struct ReviewSheet: View {
     private var polishColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(loc.t("mode.polish")).font(.system(size: 13, weight: .semibold))
-            ForEach(["review.polish.language", "review.polish.names", "review.polish.file", "review.polish.limit"], id: \.self) { key in
+            ForEach(["review.polish.language", "review.polish.names", "review.polish.pronouns",
+                     "review.polish.file", "review.polish.limit"], id: \.self) { key in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: key == "review.polish.limit" ? "info.circle" : "checkmark.circle")
                         .font(.system(size: 12)).foregroundStyle(Theme.muted)

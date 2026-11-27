@@ -94,6 +94,9 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var times: [String: Int] = [:]   // seconds spent per stage (of the current volume), kept across restarts
     var polishPlanned: Bool?      // whether the engine's last run polishes this book
     var polishOnly = false        // already translated: polished and checked, not translated
+    var retryAt: Date?            // waiting for a usage limit to pass: when to try again
+    var waitingFor = ""           // the engine waited for; kept until the book is done, to tell it once
+    var needsPrepare = false      // the limit came before the preparation was finished
     var error = ""
 
     /// Only a single EPUB can be polished on its own.
@@ -150,6 +153,9 @@ extension QueueBook {
         times = try read(.times, or: times)
         polishPlanned = try saved.decodeIfPresent(Bool.self, forKey: .polishPlanned)
         polishOnly = try read(.polishOnly, or: polishOnly)
+        retryAt = try saved.decodeIfPresent(Date.self, forKey: .retryAt)
+        waitingFor = try read(.waitingFor, or: waitingFor)
+        needsPrepare = try read(.needsPrepare, or: needsPrepare)
         error = try read(.error, or: error)
     }
 }

@@ -35,6 +35,7 @@ from src.core.auto_prep import extract_source_text
 from src.core.glossary.models import normalize_gender
 from src.core.glossary.name_scan import take_glossary_samples
 from src.core.glossary.ner import parse_ner_response, suggest_terms
+from src.core.llm.exceptions import RateLimitError
 
 logger = logging.getLogger("core.agent.glossary")
 
@@ -166,6 +167,8 @@ async def consolidate(entries: List[Dict[str, str]], source_language: str, targe
     try:
         response = await llm_provider.generate(prompt, system_prompt=_CONSOLIDATE_SYSTEM)
         candidates, _warnings = parse_ner_response(getattr(response, "content", "") or "")
+    except RateLimitError:      # asked again later, with the parts already answered
+        raise
     except Exception as exc:  # consolidation is an improvement, never a blocker
         logger.info("Glossary consolidation failed (%s); keeping the merged list", exc)
         return entries
@@ -239,6 +242,8 @@ async def build_glossary(volume_files: Sequence[Path], source_language: str,
                     candidates, warnings = await suggest_terms(
                         sample, source_language, target_language, llm_provider,
                         max_chars=SAMPLE_BUDGET)
+                except RateLimitError:
+                    raise
                 except Exception as exc:  # one failed part must not lose the others
                     logger.info("Glossary part %d.%d failed: %s", n, k, exc)
                     continue

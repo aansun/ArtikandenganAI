@@ -42,7 +42,7 @@ def test_a_whole_translation_passes(tmp_path):
     result = found(source, output)
     assert {c["level"] for c in result.values() if c["id"] != "metadata"} <= {"ok"}
     assert set(result) == {"file", "pages", "paragraphs", "length", "untranslated", "quotes", "links",
-                           "names", "surplus", "metadata"}
+                           "names", "surplus", "voice", "metadata"}
 
 
 def test_missing_and_shortened_text_fails(tmp_path):

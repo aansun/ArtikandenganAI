@@ -224,6 +224,31 @@ def _polish_check(source: _Book, output: _Book) -> dict:
     return _result("polish", "warn" if same else "ok", same)
 
 
+#: Choices two writers of one book often make differently, as (name, pattern) pairs.
+_VOICE_QUOTES = (("curly quotes", "[“”]"), ("straight quotes", '"'))
+_VOICE_ADDRESS = (("kau", r"(?i)\bkau\b"), ("kamu", r"(?i)\bkamu\b"))
+#: A page needs this many occurrences to say anything, and the book this share for a habit.
+VOICE_COUNT, VOICE_HABIT, VOICE_ODD = 8, 0.7, 0.2
+
+
+def _voice_check(output: _Book, indonesian: bool) -> dict:
+    """Pages written unlike the rest of the book: a hint that the voice changed there."""
+    texts = {page: output.text(page) for page in output.pages()}
+    odd: List[str] = []
+    for pair in (_VOICE_QUOTES, _VOICE_ADDRESS) if indonesian else (_VOICE_QUOTES,):
+        counts = {page: [len(re.findall(pattern, text)) for _name_, pattern in pair]
+                  for page, text in texts.items()}
+        whole = [sum(c[i] for c in counts.values()) for i in (0, 1)]
+        total = sum(whole)
+        if not total or max(whole) / total < VOICE_HABIT:
+            continue                    # the book itself uses both: no habit to differ from
+        usual = whole.index(max(whole))
+        for page, found in counts.items():
+            if sum(found) >= VOICE_COUNT and found[usual] / sum(found) < VOICE_ODD:
+                odd.append(f"{_name(page)}: {pair[1 - usual][0]}, the book mostly {pair[usual][0]}")
+    return _result("voice", "info" if odd else "ok", odd)
+
+
 def same_text(source: Path, output: Path) -> bool:
     """Is every paragraph of every page the same in both EPUBs? (Spacing is not compared.)"""
     before, after = _Book(source), _Book(output)
@@ -269,6 +294,8 @@ def check_volume(source: Path, output: Path, *, upload: Optional[Path] = None,
                            [f"{word} (like {name}, {count}x)" for word, (name, count) in names.items()]))
     surplus = _surplus(source_text, output_text, entries)
     results.append(_result("surplus", "warn" if surplus else "ok", surplus))
+    results.append(_voice_check(result, target_language.strip().lower()
+                                in ("indonesian", "bahasa indonesia", "id")))
     missing = audit_metadata(output, target_language=target_language)
     results.append(_result("metadata", "warn" if missing else "ok", missing))
     return results

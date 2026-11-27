@@ -5,6 +5,9 @@ Each attempt goes to the first engine of the chain that is not resting; when it 
 the next one, each with its own model. A failure the next engine cannot fix is not rerouted:
 a context overflow is the prompt's fault and goes back to the chunker.
 
+When a book's :class:`~src.core.llm.voice.Voice` is given, an engine other than the one
+whose writing the book follows is shown a sample of it, so the book keeps one voice.
+
 Circuit breaker: an engine that keeps failing is skipped for a cooldown instead of being
 tried (and timed out) on every chunk. A persistent failure (signed out, unknown model, quota
 used up) rests it at once. The breakers are shared by every chain with the same engine,
@@ -22,6 +25,7 @@ from .. import activity
 from ..base import LLMProvider, LLMRequest, LLMResponse
 from ..exceptions import ProviderError
 from ..policy import RetryPolicy
+from ..voice import Voice
 
 logger = logging.getLogger("llm.chain")
 
@@ -71,6 +75,7 @@ class ChainProvider(LLMProvider):
         retry_policy: Optional[RetryPolicy] = None,
         temperature: Optional[float] = None,
         log_callback: Optional[Callable] = None,
+        voice: Optional[Voice] = None,
     ):
         if not links:
             raise ValueError("a chain needs at least one engine")
@@ -82,6 +87,24 @@ class ChainProvider(LLMProvider):
         self.links: List[Tuple[LLMProvider, Optional[str]]] = list(links)
         self.failure_limit = failure_limit
         self.cooldown = cooldown
+        self.voice = voice
+
+    async def _ask(self, provider: LLMProvider, attempt: LLMRequest) -> LLMResponse:
+        """One request to one engine, with the book's voice when the engine needs it."""
+        step = activity.phase()
+        reference = self.voice.reference(step, provider.provider_name) if self.voice else ""
+        if not reference:
+            response = await provider._send(attempt)
+        else:
+            system = f"{attempt.system_prompt}\n\n{reference}" if attempt.system_prompt else reference
+            response = await provider._send(dataclasses.replace(attempt, system_prompt=system))
+            if self.voice.copied(step, response.content, attempt.prompt):
+                self._log("llm_chain_voice_copied",
+                          f"⚠️ [{provider.display_name}] repeated the voice sample; asking again without it")
+                response = await provider._send(attempt)
+        if self.voice:
+            self.voice.note(step, provider.provider_name, response.content)
+        return response
 
     # ---------------------------------------------------------------- breaker
     @staticmethod
@@ -115,7 +138,7 @@ class ChainProvider(LLMProvider):
             attempt = dataclasses.replace(request, model=model) if model is not None else request
             started = time.monotonic()
             try:
-                response = await provider._send(attempt)
+                response = await self._ask(provider, attempt)
             except ProviderError as error:
                 activity.record_request(provider.provider_name, attempt.model, started, attempt,
                                         error=error)

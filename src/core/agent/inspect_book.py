@@ -13,6 +13,7 @@ from src.core.agent.classifier import classify_book, heuristic_profile
 from src.core.agent.epub_metadata import read_metadata
 from src.core.agent.volumes import clean_stem, count_volumes
 from src.core.auto_prep import extract_source_text
+from src.core.llm.exceptions import RateLimitError
 
 #: Minutes of work per 1000 words, measured on a real novel (translation + polish pass).
 MINUTES_PER_KWORD_FICTION = 1.1
@@ -32,8 +33,11 @@ def inspect_book(path: Path, llm_provider=None, *, target_language: str = "Indon
     profile = heuristic_profile(text, path.name)
     method = "heuristic"
     if llm_provider is not None and text.strip():
-        profile = asyncio.run(classify_book(text, path.name, llm_provider, target_language=target_language))
-        method = profile.method
+        try:
+            profile = asyncio.run(classify_book(text, path.name, llm_provider, target_language=target_language))
+            method = profile.method
+        except RateLimitError:      # only a first look: the guess will do
+            pass
     # Words of the whole file: the sampled text is capped, so scale by the file size.
     words = max(1, int(len(text) / 5.8))
     if first.exists() and first.suffix.lower() == ".epub":

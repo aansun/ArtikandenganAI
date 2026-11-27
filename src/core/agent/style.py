@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
+from src.core.llm.exceptions import RateLimitError
 from src.utils import document_sampler
 
 logger = logging.getLogger("core.agent.style")
@@ -59,9 +60,9 @@ Write the style guide for translating this book into {target_language}. Use exac
 sections, each with 2-4 short, concrete bullets decided FROM THE EXCERPTS (not generic advice):
 
 ## Register and address
-Which pronouns and forms of address {target_language} should use between the main characters
-and for the narrator (for Indonesian: saya/aku/kamu/Anda/dia, titles such as Tuan/Nyonya), and
-the level of formality.
+Fixed rules, one bullet per pair of main speakers and one for the narrator: the exact
+{target_language} words for "I" and "you" (for Indonesian: saya/aku, Anda/kamu/kau, dia; titles
+such as Tuan/Nyonya), and the level of formality.
 
 ## Narration
 Voice, tense, rhythm and diction suited to the period and genre.
@@ -79,6 +80,11 @@ Rules for the guide: at most 350 words in total; every bullet specific to this b
 the translator to omit, summarize, skip or reorder any text of the book (front and back matter
 are translated like everything else); leave how names are written to the glossary.
 Output the five sections only."""
+
+#: Added to the style of a book that is only polished: its pronouns are already chosen.
+KEEP_PRONOUNS_TITLE = "## Pronouns already in the text"
+KEEP_PRONOUNS = (KEEP_PRONOUNS_TITLE + "\n- Keep every pronoun and form of address exactly as the draft "
+                 "has it; this overrides any other rule about them.")
 
 #: The styles offered to the user: id -> (name, what it means for the translation).
 STYLE_PRESETS = {
@@ -140,6 +146,13 @@ def _cast(terms: List[Dict[str, str]]) -> str:
     return "\n".join(rows) or "(none found)"
 
 
+def keep_pronouns(style: str) -> str:
+    """The style of a polish: its rules on register and address would change pronouns the book
+    already has, so they give way to one rule that keeps them."""
+    style = re.sub(r"(?ms)^## Register and address\n.*?(?=^## |\Z)", "", style)
+    return style.rstrip() + "\n\n" + KEEP_PRONOUNS + "\n"
+
+
 def compose_style(baseline: str, generated: str) -> str:
     parts = ["# Style guide", ""]
     if baseline:
@@ -189,6 +202,8 @@ async def recommend_style(text: str, profile, target_language: str, llm_provider
                                      target_language=target_language, sample=sample, options=options),
             system_prompt=_RECOMMEND_SYSTEM)
         data = _json_object(getattr(response, "content", "") or "")
+    except RateLimitError:
+        raise
     except Exception as exc:
         logger.info("Style recommendation failed (%s); using the genre", exc)
         return fallback
@@ -222,6 +237,8 @@ async def build_style_guide(text: str, profile, target_language: str, terms: Lis
         try:
             response = await llm_provider.generate(prompt, system_prompt=_SYSTEM)
             generated = _clean_sections(getattr(response, "content", "") or "")
+        except RateLimitError:
+            raise
         except Exception as exc:  # the baseline still applies
             logger.info("Style guide generation failed (%s); using the baseline only", exc)
     style = compose_style(baseline, generated)
@@ -293,6 +310,8 @@ async def calibrate(text: str, profile, target_language: str, prompt_options: Di
             has_placeholders=False, prompt_options=prompt_options, glossary_block=glossary_block)
         try:
             response = await llm_provider.generate(prompt.user, system_prompt=prompt.system)
+        except RateLimitError:
+            raise
         except Exception as exc:
             logger.info("Calibration passage %d failed: %s", number, exc)
             continue

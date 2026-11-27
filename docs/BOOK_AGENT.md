@@ -109,7 +109,8 @@ One run does, for each book:
 10. **Final check** of each volume, without asking any model: the file opens and is well formed;
     every page of the upload that belongs to the book is there; paragraph counts match; no page or
     long paragraph is far shorter than its source; nothing was left in the source language; links
-    that worked still work; dialogue marks are the same across chapters; no locked name appears far
+    that worked still work; dialogue marks are the same across chapters; no page writes quotation
+    marks or *kau*/*kamu* unlike the rest of the book ([one voice](#one-voice-for-a-book)); no locked name appears far
     more often than in the original (a sign of wrong replacements); book details are complete. The
     result is `check.json` (`ok`, `warn`, or `fail` when part of the book is probably missing).
     It does not judge the prose, and nothing is changed. `--check <book folder>` runs it again.
@@ -183,6 +184,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--no-split`, `--volume-pattern REGEX` | Control volume splitting |
 | `--chunk-tokens N`, `--parallel N` | Chunk size (default 1800); concurrent requests while translating (default 1) |
 | `--translate-provider auto\|claude-cli\|codex\|agy\|agy-claude` | `auto` (default): every active engine, first = main, rest = backups; or force one |
+| `--one-engine` | Use only the book's [main engine](#one-voice-for-a-book); wait (exit code 3) at its usage limit |
 | `--engines codex,claude`, `--refresh-engines` | Order or subset of engines for `auto`; probe them again instead of using the cached result |
 | `--style auto\|formal\|santai\|sastra` | Translation style; `auto` follows the recommendation |
 | `--check BOOK_FOLDER` | Run the final check again on a translated book (no model is asked) and exit |
@@ -228,6 +230,27 @@ history of the requests, which includes the passages sent.
 
 A model that its provider retires makes the engine inactive until the list is updated.
 
+## One voice for a book
+
+Two models do not write alike, so a book has a **main engine** (auto mode): the one it began with,
+or the one that wrote the other books of its series. It is asked first on every run, whatever the
+engine order says later. Its model stays too. `--redo` of the whole book chooses anew.
+
+- **Switching (default).** When the main engine fails or reaches its usage limit, the next one takes
+  over. `voice.json` in the book folder holds two short passages the main engine wrote (one set for
+  the translation, one for the polish pass), and every request to another engine carries them as a
+  voice reference: word choice, pronouns, rhythm, punctuation. The main engine's requests are
+  unchanged. An answer that repeats the sample is asked for again without it. This brings the
+  engines closer; it cannot make them identical.
+- **Waiting (`--one-engine`).** No other engine is used. At a usage limit the run stops with exit
+  code **3**, `status.json` says `waiting` and which engine, and the same command goes on later.
+  The app tries again every 20 minutes; a preparation cut short by the limit is asked again rather
+  than kept in a poorer form.
+
+The style guide asks for fixed pronoun rules per pair of speakers, and a polished book keeps the
+pronouns of its text (its style guide has no register rules that would change them). The final check lists pages whose quotation marks or *kau*/*kamu* differ from
+the habit of the rest of the book (a hint to read them, not proof of an error).
+
 ## Cost and speed
 
 Every chunk is one CLI call. The agent uses 1800-token chunks (the engine's 450 is meant for small
@@ -247,7 +270,7 @@ The app drives `translate_book.py` and reads files; it needs no other interface:
 - `--inspect FILE`: title, author, volumes, `kind` (fiksi or nonfiksi, recognised from the content),
   source language, word count and estimated minutes, for the Masukkan card. `--fiction` /
   `--non-fiction` overrides the recognition when the user flips it.
-- `books/status.json`: what runs now (`state` running or idle, book, volume, `pct`, `engine` that
+- `books/status.json`: what runs now (`state` running, idle or waiting, book, volume, `pct`, `engine` that
   answered last, `stage` prepare, translate, refine or check, `times` in seconds per stage, `polish`),
   updated every few seconds.
 - `book.json` has `mode`: `translate`, or `polish` for a polish-only book.

@@ -13,7 +13,8 @@ def log_call(provider: str, model: str, prompt: str, system: str, **extra) -> No
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"provider": provider, "model": model, "prompt": prompt[:2500],
                                 "system": system[:4000],
-                                "glossary": "# GLOSSARY" in prompt, **extra}) + "\n")
+                                "glossary": "# GLOSSARY" in prompt,
+                                "voice": "VOICE REFERENCE" in system + prompt, **extra}) + "\n")
 
 
 def respond(prompt: str, system: str) -> str:
