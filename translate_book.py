@@ -80,6 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "signals, in <books>/_activity-log). Also off with AGENT_LOG=0.")
     p.add_argument("--log-report", action="store_true",
                    help="Print a summary of the activity log as Markdown and exit.")
+    p.add_argument("--check", metavar="BOOK_FOLDER",
+                   help="Check the finished translation of a book folder again (no model is asked), "
+                        "write its check.json and exit.")
     p.add_argument("--detect", action="store_true",
                    help="Print the engines found on this machine as JSON and exit.")
     p.add_argument("--inspect", metavar="FILE",
@@ -157,10 +160,12 @@ def _options(args, input_path: Path, root: Path) -> AgentOptions:
         max_tokens_per_chunk=args.chunk_tokens, parallel=args.parallel, effort=args.effort)
 
 
+def _say(message: str) -> None:
+    print(f"[agent] {message}", flush=True)
+
+
 def run_book(args, input_path: Path, root: Path) -> int:
-    def say(message: str) -> None:
-        print(f"[agent] {message}", flush=True)
-    return BookAgent(_options(args, input_path, root), say=say).run()
+    return BookAgent(_options(args, input_path, root), say=_say).run()
 
 
 def _settled(path: Path) -> bool:
@@ -186,6 +191,15 @@ def process_pending(args, root: Path, retry_at: dict, only_settled: bool) -> int
             worst = code
             retry_at[key] = time.time() + WATCH_RETRY_SECONDS
     return worst
+
+
+def _check(parser, args, root) -> int:
+    folder = Path(args.check)
+    if not (folder / "state.json").is_file():
+        parser.error(f"not a book folder: {folder}")
+    source = next(iter(sorted((folder / "source").glob("*"))), folder)
+    agent = BookAgent(AgentOptions(input_path=source, books_dir=root, workdir=folder), say=_say)
+    return agent.check_only()
 
 
 def _check_tools(parser, provider: str) -> None:
@@ -228,7 +242,7 @@ def _selfcheck() -> int:
              "src.core.llm.providers.agy", "src.core.llm.providers.opencode_cli",
              "src.core.llm.providers.chain", "src.core.agent.models",
              "src.core.agent.log_report", "src.core.llm.activity", "src.core.agent.series",
-             "src.core.agent.stages", "src.core.refine.chunk_cache"]
+             "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check"]
     missing = []
     for name in names:
         try:
@@ -278,6 +292,8 @@ def main(argv=None) -> int:
     keep_log = args.log and os.getenv("AGENT_LOG", "").strip() != "0"
     activity.configure(root / log_report.FOLDER if keep_log else None,
                        app_version=os.getenv("NNAI_APP_VERSION", ""))
+    if args.check:
+        return _check(parser, args, root)
     if args.detect:
         found = engines_mod.detect_engines(order, cache_path=root / ".engines.json",
                                            refresh=args.refresh_engines)

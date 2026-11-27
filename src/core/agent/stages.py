@@ -2,7 +2,7 @@
 How long each stage of a book has been worked on.
 
 The stages are the preparation (reading, glossary, style, sample) once per book, then the
-translation and the polish of each volume. Time is counted only while the agent runs and is
+translation, the polish and the final check of each volume. Time is counted only while the agent runs and is
 saved every few seconds in the book's folder, so it adds up across pauses, usage limits and
 a closed app.
 """
@@ -18,7 +18,7 @@ from typing import Callable, Dict, Optional
 
 logger = logging.getLogger("core.agent.stages")
 
-PREPARE, TRANSLATE, REFINE = "prepare", "translate", "refine"
+PREPARE, TRANSLATE, REFINE, CHECK = "prepare", "translate", "refine", "check"
 TICK_SECONDS = 3.0
 
 
@@ -107,9 +107,10 @@ class StageClock:
             self._save()
 
     def seconds(self, volume: int = 0) -> Dict[str, int]:
-        """Whole seconds of the preparation and of ``volume``'s translation and polish."""
+        """Whole seconds of the preparation and of each stage of ``volume``."""
         with self._lock:
             of_volume = self._data["volumes"].get(str(volume), {})
             return {PREPARE: int(self._data.get(PREPARE, 0)),
                     TRANSLATE: int(of_volume.get(TRANSLATE, 0)),
-                    REFINE: int(of_volume.get(REFINE, 0))}
+                    REFINE: int(of_volume.get(REFINE, 0)),
+                    CHECK: int(of_volume.get(CHECK, 0))}

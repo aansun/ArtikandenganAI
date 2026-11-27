@@ -42,6 +42,7 @@ from src.core.agent.classifier import BookProfile, classify_book
 from src.core.agent.epub_metadata import (
     GENRE_SUBJECTS_ID, audit_metadata, finalize_metadata, read_metadata, strip_volume_suffix)
 from src.core.agent import engines as engines_mod
+from src.core.agent import final_check
 from src.core.agent.glossary_builder import build_glossary, write_glossary
 from src.core.agent import qa as qa_mod
 from src.core.agent import series as series_mod
@@ -687,6 +688,7 @@ class BookAgent:
         profile = self.profile
         if self.opt.redo:
             self._redo_volumes()
+            (self.workdir / final_check.REPORT).unlink(missing_ok=True)
         choice = choose_model(profile.genre, profile=self.opt.profile, override=self.opt.model,
                               provider=self.opt.translate_provider, engines=self.engines)
         self.state.provider = self.opt.translate_provider
@@ -756,6 +758,8 @@ class BookAgent:
                 continue
             if vol.status == JobStatus.COMPLETED.value and Path(vol.output).exists():
                 self.say(f"Volume {vol.index}: already translated, skipped")
+                if not self._checked(vol):          # stopped before its check
+                    self._check_volume(vol, profile)
                 continue
             self.say(f"Volume {vol.index}/{len(self.state.volumes)}: {vol.label}")
             volume_started = time.time()
@@ -771,8 +775,16 @@ class BookAgent:
                 continue
             vol.status = status.value
             if status is JobStatus.COMPLETED:
-                self._finish_volume(vol, profile, cli_logger)
-                self._write_qa_report()
+                self._live = (vol, 100, "check")
+                self.clock.start(stages_mod.CHECK, vol.index)
+                self._write_status("running", *self._live)
+                try:
+                    self._finish_volume(vol, profile, cli_logger)
+                    self._write_qa_report()
+                    self._save_state()      # a run stopped during the check keeps the volume as done
+                    self._check_volume(vol, profile)
+                finally:
+                    self.clock.stop()
             self._save_state()
             self._log_volume(vol, profile, choice, volume_started)
             if status is JobStatus.RATE_LIMITED:
@@ -781,6 +793,48 @@ class BookAgent:
 
         self._write_status("idle")
         return self._report(time.time() - started)
+
+    def _check_volume(self, vol: VolumeState, profile: BookProfile) -> None:
+        """The last stage: is the finished volume whole and sound? Writes check.json."""
+        upload = Path(self.state.source) if len(self.state.volumes) == 1 and self.state.source else None
+        try:
+            checks = final_check.check_volume(
+                Path(vol.source), Path(vol.output), upload=upload, entries=self._glossary_entries(),
+                source_language=profile.source_language, target_language=self.opt.target_language)
+            report = final_check.write_report(self.workdir, {vol.index: checks})
+        except Exception as exc:  # a check that cannot run must not lose the translation
+            logger.warning("Final check of volume %d failed: %s", vol.index, exc)
+            return
+        found = next(v for v in report["volumes"] if v["index"] == vol.index)
+        self.say(f"Final check of volume {vol.index}: {found['overall']}"
+                 + ("" if found["overall"] == "ok" else ", see " + final_check.REPORT))
+
+    def _checked(self, vol: VolumeState) -> bool:
+        try:
+            report = json.loads((self.workdir / final_check.REPORT).read_text(encoding="utf-8"))
+            return any(v["index"] == vol.index for v in report["volumes"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+
+    def check_only(self) -> int:
+        """Run the final check again on the finished volumes, without translating."""
+        profile = BookProfile(**self.state.profile) if self.state.profile else None
+        done = [v for v in self.state.volumes
+                if v.status == JobStatus.COMPLETED.value and Path(v.output).exists()]
+        if not profile or not done:
+            self.say("Nothing to check: no finished volume in this folder.")
+            return 2
+        info = self.workdir / "book.json"
+        try:        # the language of the book as it was translated
+            self.opt.target_language = json.loads(info.read_text(encoding="utf-8"))["target_language"]
+        except (OSError, ValueError, KeyError):
+            pass
+        for vol in done:
+            self._check_volume(vol, profile)
+        report = self.workdir / final_check.REPORT
+        if report.exists():
+            self.say(final_check.summary(json.loads(report.read_text(encoding="utf-8"))))
+        return 0
 
     def _log_volume(self, vol: VolumeState, profile: BookProfile, choice: ModelChoice,
                     started: float) -> None:

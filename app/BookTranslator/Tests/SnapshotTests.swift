@@ -35,6 +35,12 @@ final class SnapshotTests: XCTestCase {
         try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
     }
 
+    private func book4() -> QueueBook {
+        var x = QueueBook(fileName: "c.epub", title: "The Hollow Crown")
+        x.author = "Mara Ellison"; x.kind = .fiction; x.volumes = 1
+        return x
+    }
+
     private func mockPlan() -> DeletionPlan {
         var plan = DeletionPlan(folder: FileManager.default.temporaryDirectory.appendingPathComponent("bt-none"))
         plan.translations = ["A Study in Scarlet (Indonesian).epub"]
@@ -110,6 +116,18 @@ final class SnapshotTests: XCTestCase {
         stopped.books[0] = half
         try render(env(ProcessView {}, stopped), name: "D-process-paused-id", size: size)
         try render(env(ProcessView {}, stopped), name: "D-process-narrow-id", size: CGSize(width: 940, height: 640))
+        let ended = model()
+        ended.books = Array(ended.books.dropFirst()); ended.runningID = nil
+        var last = book4()
+        last.step = "check"; last.pct = 100; last.times = ["prepare": 194, "translate": 4210, "refine": 2105, "check": 4]
+        let verdict = CheckReport(overall: "warn", volumes: [.init(index: 1, overall: "warn", checks: [
+            .init(id: "file", level: "ok", count: 0, items: []), .init(id: "pages", level: "ok", count: 0, items: []),
+            .init(id: "quotes", level: "warn", count: 1, items: ["split_1.html: single"]),
+            .init(id: "names", level: "info", count: 1, items: ["Monks (like Monks', 3x)"])])])
+        ended.finished = FinishedBook(folder: "hollow", book: last, report: verdict)
+        try render(env(ProcessView(goInput: {}), ended), name: "E-process-finished-id", size: size)
+        var checked = ended.mockLibrary[0]; checked.check = verdict
+        try render(env(CheckCard(book: checked).padding(16), ended), name: "E-check-card-id", size: CGSize(width: 330, height: 420))
         let target = mockPlan()
         try render(env(DeleteBookSheet(book: m.mockLibrary[0], plan: target, close: { _ in }), m), name: "D-delete-id", size: CGSize(width: 480, height: 600))
         try render(env(SettingsView(height: 1700), m), name: "4-settings-full-id", size: CGSize(width: 700, height: 1700))

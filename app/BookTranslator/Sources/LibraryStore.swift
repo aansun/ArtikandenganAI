@@ -40,6 +40,7 @@ final class LibraryStore {
         guard let data = try? Data(contentsOf: file),
               var book = try? JSONDecoder.snake.decode(LibraryBook.self, from: data) else { return nil }
         book.folder = folder.lastPathComponent
+        book.check = CheckReport.read(folder)
         if let first = book.volumes.first(where: { !$0.output.isEmpty && FileManager.default.fileExists(atPath: $0.output) }),
            let meta = EpubReader.read(URL(fileURLWithPath: first.output)) {
             book.authorName = meta.creators.joined(separator: ", ")

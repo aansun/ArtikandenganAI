@@ -234,17 +234,19 @@ final class QueueTests: XCTestCase {
         b.workdir = "a"
         b.step = "translate"; b.pct = 40; b.times = ["prepare": 75, "translate": 300]
         var steps = BookStage.steps(for: b, polishByDefault: true)
-        XCTAssertEqual(steps.map(\.state), [.done, .active, .pending])
-        XCTAssertEqual(steps.map(\.seconds), [75, 300, 0])
+        XCTAssertEqual(steps.map(\.state), [.done, .active, .pending, .pending])
+        XCTAssertEqual(steps.map(\.seconds), [75, 300, 0, 0])
         b.step = "refine"
-        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: false).map(\.state), [.done, .done, .active])
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: false).map(\.state), [.done, .done, .active, .pending])
+        b.step = "check"
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: true).map(\.state), [.done, .done, .done, .active])
         b.step = "translate"; b.polishPlanned = false          // the engine says this run does not polish
-        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: true).map(\.state), [.done, .active, .skipped])
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: true).map(\.state), [.done, .active, .skipped, .pending])
         b = book("B", stage: .preparing)
         steps = BookStage.steps(for: b, polishByDefault: true)
-        XCTAssertEqual(steps.map(\.state), [.active, .pending, .pending])
+        XCTAssertEqual(steps.map(\.state), [.active, .pending, .pending, .pending])
         b.stage = .approved; b.step = "prepare"; b.workdir = "b"      // prepared, not translating yet
-        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: true).map(\.state), [.done, .pending, .pending])
+        XCTAssertEqual(BookStage.steps(for: b, polishByDefault: true).map(\.state), [.done, .pending, .pending, .pending])
     }
 
     func testAStoppedBookKeepsItsProgressAcrossARestart() throws {
@@ -298,6 +300,23 @@ final class QueueTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: two.path))
         // the test's own folder must not be left in the user's Trash
         try? fm.removeItem(at: fm.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(one.lastPathComponent)"))
+    }
+
+    func testTheFinalCheckIsReadFromTheBookFolder() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("bt-check-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        XCTAssertNil(CheckReport.read(folder))
+        let json = #"{"checked_at":"x","overall":"fail","volumes":[{"index":1,"overall":"fail","checks":[{"id":"file","level":"ok","count":0,"items":[]},{"id":"pages","level":"fail","count":2,"items":["a","b"]},{"id":"names","level":"info","count":1,"items":["c"]},{"id":"links","level":"warn","count":1,"items":["d"]}]}]}"#
+        try Data(json.utf8).write(to: folder.appendingPathComponent("check.json"))
+        try Data(#"{"title":"T","volumes":[]}"#.utf8).write(to: folder.appendingPathComponent("book.json"))
+        let report = try XCTUnwrap(CheckReport.read(folder))
+        XCTAssertTrue(report.needsLook)
+        XCTAssertEqual(report.problems, 2)                       // information alone asks for nothing
+        XCTAssertEqual(LibraryStore.read(folder: folder)?.check, report)
+        for check in ["file", "pages", "paragraphs", "length", "untranslated", "quotes", "links", "names", "surplus", "metadata"] {
+            XCTAssertNotNil(Loc.table["check.\(check).ok"], check)
+            XCTAssertNotNil(Loc.table["check.\(check).found"], check)
+        }
     }
 
     func testUnreadyAndKindToggle() {

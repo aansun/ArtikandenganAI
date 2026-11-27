@@ -43,6 +43,8 @@ final class AppModel {
     var logLine = ""
     var reviewTarget: QueueBook.ID?
     var runningID: QueueBook.ID?
+    var finished: FinishedBook?        // the last book that finished while the app ran
+    var checking: String?              // the library folder being checked again
     var lastError = ""
     let library = LibraryStore()
     let engineSetup = EngineSetup()
@@ -536,9 +538,14 @@ final class AppModel {
         let folder = book.workdir ?? findWorkdir(for: book, before: before)
         if code == 0, let folder, let result = LibraryStore.read(folder: env.booksDir.appendingPathComponent(folder)),
            result.isComplete {
+            var last = self.book(book.id) ?? book
+            last.step = "check"; last.pct = 100
+            finished = FinishedBook(folder: folder, book: last, report: result.check)
             books.removeAll { $0.id == book.id }
             library.reload(env: env)
-            notify(Loc.shared.t("notify.done", result.title), Loc.shared.t("notify.doneBody"), attention: false)
+            let needsLook = result.check?.needsLook ?? false
+            notify(Loc.shared.t("notify.done", result.title),
+                   needsLook ? CheckStyle.verdict(result.check, Loc.shared) : Loc.shared.t("notify.doneBody"), attention: needsLook)
             addCompletedVolumesToBooks(folder: folder)
         } else {
             update(book.id) { $0.workdir = $0.workdir ?? folder }
@@ -797,6 +804,22 @@ final class AppModel {
         order.insert(name, at: order.firstIndex(of: target) ?? order.count)
         engineOrder = order
         refreshEngines(force: false, reorder: true)
+    }
+
+    // MARK: - Checking a finished book again
+
+    /// Runs the engine's last stage on a library book. Returns nil, else why it could not.
+    func recheck(_ folder: String) async -> String? {
+        guard checking == nil, env.isReady else { return nil }
+        checking = folder
+        defer { checking = nil }
+        do {
+            _ = try await BackendClient.run(env, ["--check", env.booksDir.appendingPathComponent(folder).path])
+        } catch {
+            return error.localizedDescription.nonEmpty ?? Loc.shared.t("check.failed")
+        }
+        library.reload(env: env, force: true)
+        return nil
     }
 
     // MARK: - Deleting a book

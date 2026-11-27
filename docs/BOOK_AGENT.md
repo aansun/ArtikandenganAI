@@ -106,6 +106,13 @@ One run does, for each book:
      source-language text, a different paragraph count, and a locked name that never appears. The
      result is `qa_report.md`; flags are things to look at, not proven errors.
    Then `book.json` and `INDEX.md` are written.
+10. **Final check** of each volume, without asking any model: the file opens and is well formed;
+    every page of the upload that belongs to the book is there; paragraph counts match; no page or
+    long paragraph is far shorter than its source; nothing was left in the source language; links
+    that worked still work; dialogue marks are the same across chapters; no locked name appears far
+    more often than in the original (a sign of wrong replacements); book details are complete. The
+    result is `check.json` (`ok`, `warn`, or `fail` when part of the book is probably missing).
+    It does not judge the prose, and nothing is changed. `--check <book folder>` runs it again.
 
 ## Where things go
 
@@ -161,6 +168,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--translate-provider auto\|claude-cli\|codex\|agy\|agy-claude` | `auto` (default): every active engine, first = main, rest = backups; or force one |
 | `--engines codex,claude`, `--refresh-engines` | Order or subset of engines for `auto`; probe them again instead of using the cached result |
 | `--style auto\|formal\|santai\|sastra` | Translation style; `auto` follows the recommendation |
+| `--check BOOK_FOLDER` | Run the final check again on a translated book (no model is asked) and exit |
 | `--set-metadata BOOK_FOLDER --field F --value V` | Set one metadata field (title, creator, description, publisher, date, subject, language, series, isbn, cover) of every translated volume and exit; `\|` separates several subjects or authors; `cover` takes an image path |
 | `--no-log`, `--log-report` | Do not keep the [translation log](TRANSLATION_LOG.md) (also `AGENT_LOG=0`); print its summary |
 | `--detect` | Print the engines found, as JSON, and exit |
@@ -223,7 +231,7 @@ The app drives `translate_book.py` and reads files; it needs no other interface:
   source language, word count and estimated minutes, for the Masukkan card. `--fiction` /
   `--non-fiction` overrides the recognition when the user flips it.
 - `books/status.json`: what runs now (`state` running or idle, book, volume, `pct`, `engine` that
-  answered last, `stage` prepare, translate or refine, `times` in seconds per stage, `polish`),
+  answered last, `stage` prepare, translate, refine or check, `times` in seconds per stage, `polish`),
   updated every few seconds.
 - `books/<book>/book.json`, `style.json`, `glossary.json`, `qa_report.md`: the book's state, style
   options and recommendation, locked names and the quality audit.

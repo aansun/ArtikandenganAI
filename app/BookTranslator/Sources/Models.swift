@@ -90,7 +90,7 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var volume = 0
     var pct = 0
     var polishing = false         // the percentage belongs to the polish pass, not the translation
-    var step = ""                 // the stage last worked on: "prepare", "translate" or "refine"
+    var step = ""                 // the stage last worked on: "prepare", "translate", "refine" or "check"
     var times: [String: Int] = [:]   // seconds spent per stage (of the current volume), kept across restarts
     var polishPlanned: Bool?      // whether the engine's last run polishes this book
     var error = ""
@@ -147,11 +147,11 @@ struct EngineStatus: Codable, Equatable {
 /// One step of the way a book goes, as shown above its title.
 struct BookStage: Identifiable, Equatable {
     enum State: Equatable { case done, active, pending, skipped }
-    var id: String                // "prepare", "translate", "refine"
+    var id: String                // "prepare", "translate", "refine", "check"
     var state: State
     var seconds: Int
 
-    static let order = ["prepare", "translate", "refine"]
+    static let order = ["prepare", "translate", "refine", "check"]
 
     /// Where `book` stands. `polishByDefault` answers for a run that has not said yet.
     static func steps(for book: QueueBook, polishByDefault: Bool) -> [BookStage] {
@@ -224,6 +224,7 @@ struct LibraryBook: Codable, Identifiable, Equatable {
     var folder: String = ""        // set by the loader: the folder name under books/
     var authorName: String = ""    // set by the loader from the first EPUB
     var series: String = ""        // set by the loader from the first EPUB
+    var check: CheckReport?        // set by the loader from check.json
 
     var id: String { folder }
     var kind: BookKind { (isFiction ?? false) ? .fiction : .nonfiction }

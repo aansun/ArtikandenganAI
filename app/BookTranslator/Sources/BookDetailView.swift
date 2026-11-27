@@ -55,7 +55,7 @@ struct BookDetailView: View {
                 }.buttonStyle(.plain)
                 header
                 volumes
-                qa
+                CheckCard(book: book)
             }
             .padding(.horizontal, 24).padding(.vertical, 18)
         }
@@ -116,21 +116,6 @@ struct BookDetailView: View {
                     if index < book.volumes.count - 1 { Rectangle().fill(Theme.rowLine).frame(height: 1) }
                 }
             }
-        }
-    }
-
-    private var qa: some View {
-        CardBox {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(loc.t("detail.qa")).font(.system(size: 13, weight: .semibold))
-                Text(book.qaFlagCount == 0 ? loc.t("detail.qaNone") : loc.t("detail.qaSome", book.qaFlagCount))
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
-                if let report = book.qaReport, !report.isEmpty, book.qaFlagCount > 0 {
-                    Button(loc.t("detail.qaOpen")) { NSWorkspace.shared.open(URL(fileURLWithPath: report)) }
-                        .buttonStyle(.link).font(.system(size: 12))
-                }
-            }
-            .padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

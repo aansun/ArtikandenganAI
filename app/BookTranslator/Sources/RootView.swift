@@ -19,7 +19,7 @@ struct RootView: View {
         Group {
             switch stage {
             case .input: InputView(onStart: { stage = .process })
-            case .process: ProcessView { stage = .input }
+            case .process: ProcessView(goInput: { stage = .input }, openResult: { openFolder = $0; stage = .library })
             case .library: LibraryScreen(openFolder: $openFolder)
             }
         }

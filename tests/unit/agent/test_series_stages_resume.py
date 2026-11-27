@@ -111,7 +111,7 @@ def test_a_stopped_polish_pass_continues_where_it_was(env, monkeypatch):  # noqa
     assert len(all_polished) > 2 and len(set(all_polished)) == len(all_polished)   # no chunk twice
     assert not list((work / "translation").glob("*" + chunk_cache.SUFFIX))
     status = json.loads((env / "books" / "status.json").read_text())
-    assert status["state"] == "idle" and set(status["times"]) == {"prepare", "translate", "refine"}
+    assert status["state"] == "idle" and set(status["times"]) == {"prepare", "translate", "refine", "check"}
     assert set(json.loads((work / "stages.json").read_text())) == {"prepare", "volumes"}
 
 
@@ -180,7 +180,7 @@ def test_stage_times_add_up_across_runs(tmp_path):
     again.start(stages.REFINE, 1)
     clock_time[0] += 10
     again.stop()
-    assert again.seconds(1) == {"prepare": 30, "translate": 53, "refine": 30}
-    assert again.seconds(2) == {"prepare": 30, "translate": 0, "refine": 0}
+    assert again.seconds(1) == {"prepare": 30, "translate": 53, "refine": 30, "check": 0}
+    assert again.seconds(2) == {"prepare": 30, "translate": 0, "refine": 0, "check": 0}
     again.reset(1)
     assert again.seconds(1)["translate"] == 0

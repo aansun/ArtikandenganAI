@@ -6,13 +6,15 @@ struct ProcessView: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
     var goInput: () -> Void
+    var openResult: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            if let done = model.finished { finishedCard(done) }
             if let current = model.currentBook { runningCard(current) }
             else if model.paused, !model.queueList.isEmpty { pausedCard }
             else if !model.isBusy, model.waitingCount > 0 { stalledCard }
-            if model.queueList.isEmpty { empty }
+            if model.queueList.isEmpty { if model.finished == nil { empty } }
             else if !waiting.isEmpty { queueTable }
             Spacer(minLength: 0)
         }
@@ -106,6 +108,32 @@ struct ProcessView: View {
         .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
     }
 
+    /// All four stages done, and what the last one found.
+    private func finishedCard(_ done: FinishedBook) -> some View {
+        var steps = BookStage.steps(for: done.book, polishByDefault: model.polishNovels && done.book.kind == .fiction)
+        for index in steps.indices where steps[index].state != .skipped { steps[index].state = .done }
+        let level = done.report?.overall ?? "info"
+        return CardBox(radius: 16) {
+            HStack(alignment: .top, spacing: 18) {
+                CoverView(title: done.book.title, image: model.library.covers[done.folder] ?? model.queueCovers[done.book.id], width: 60, height: 88, radius: 5)
+                VStack(alignment: .leading, spacing: 8) {
+                    StageSteps(steps: steps, paused: false)
+                    Text(loc.t("notify.done", done.book.title)).font(.system(size: 17, weight: .semibold))
+                    HStack(spacing: 7) {
+                        Image(systemName: CheckStyle.symbol(level)).foregroundStyle(CheckStyle.color(level))
+                        Text(CheckStyle.verdict(done.report, loc)).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 8) {
+                        Spacer()
+                        Button(loc.t("common.close")) { model.finished = nil }.buttonStyle(GhostButtonStyle())
+                        Button(loc.t("check.see")) { model.finished = nil; openResult(done.folder) }.buttonStyle(PrimaryButtonStyle(radius: 8))
+                    }
+                }
+            }
+            .padding(18)
+        }
+    }
+
     private func dotColor(_ i: Int, book: QueueBook, tint: Color) -> Color {
         if i < book.volume { return Theme.green }
         if i == book.volume { return tint }
@@ -159,17 +187,21 @@ struct StageSteps: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { row(connected: true) }
-            VStack(alignment: .leading, spacing: 6) { row(connected: false) }
+            HStack(spacing: 6) { row(0..<steps.count) }
+            VStack(alignment: .leading, spacing: 6) {          // a narrow window: two to a line
+                ForEach(Array(stride(from: 0, to: steps.count, by: 2)), id: \.self) { first in
+                    HStack(spacing: 6) { row(first..<min(first + 2, steps.count)) }
+                }
+            }
         }
         .padding(.bottom, 2)
     }
 
-    @ViewBuilder private func row(connected: Bool) -> some View {
-        ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-            chip(step, number: index + 1)
-            if connected, index < steps.count - 1 {
-                Rectangle().fill(step.state == .done ? Theme.stageIdle : Theme.stageTrack).frame(width: 14, height: 2)
+    @ViewBuilder private func row(_ range: Range<Int>) -> some View {
+        ForEach(range, id: \.self) { index in
+            chip(steps[index], number: index + 1)
+            if index < range.upperBound - 1 {
+                Rectangle().fill(steps[index].state == .done ? Theme.stageIdle : Theme.stageTrack).frame(width: 14, height: 2)
             }
         }
     }

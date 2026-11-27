@@ -149,8 +149,13 @@ struct LibraryScreen: View {
         }
     }
 
+    /// Missing book details the user has not accepted yet, or a final check that asks for a look.
+    private func needsAttention(_ book: LibraryBook) -> Bool {
+        (book.missingCount > 0 && !model.verified.contains(book.folder)) || (book.check?.needsLook ?? false)
+    }
+
     private func card(_ book: LibraryBook) -> some View {
-        let attention = book.missingCount > 0 && !model.verified.contains(book.folder)
+        let attention = needsAttention(book)
         return Button { openFolder = book.folder } label: {
             VStack(alignment: .leading, spacing: 5) {
                 CoverView(title: book.title, image: model.library.covers[book.folder], width: 146, height: 112, showTitle: true, radius: 5)
@@ -159,7 +164,10 @@ struct LibraryScreen: View {
                 Text(book.authorName).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
                 HStack(spacing: 6) {
                     Pill(text: loc.t(book.kind.key), bg: book.kind.pillBg, fg: book.kind.pillFg)
-                    if attention { Pill(text: loc.t("library.check"), bg: Theme.warnBg, fg: Theme.warnText) }
+                    if attention {
+                        let failed = book.check?.overall == "fail"
+                        Pill(text: loc.t("library.check"), bg: failed ? Theme.dangerBg : Theme.warnBg, fg: failed ? Theme.danger : Theme.warnText)
+                    }
                 }
             }
             .padding(9).frame(width: 164, alignment: .leading)
@@ -172,7 +180,7 @@ struct LibraryScreen: View {
 
     /// Cover-first tile: a large rounded cover with the title, author and volume count under it.
     private func coverTile(_ book: LibraryBook) -> some View {
-        let attention = book.missingCount > 0 && !model.verified.contains(book.folder)
+        let attention = needsAttention(book)
         return Button { openFolder = book.folder } label: {
             VStack(alignment: .leading, spacing: 10) {
                 CoverView(title: book.title, image: model.library.covers[book.folder], width: 176, height: 264, showTitle: true, radius: 14)
