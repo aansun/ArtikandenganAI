@@ -64,6 +64,13 @@ enum Theme {
     static let queueText = Color(light: 0x55473B, dark: 0xDDD0C3)
     static let codexBadge = Color(light: 0x4A3F36, dark: 0x6A5C50)
     static let onAccent = Color(light: 0xFFFBF7, dark: 0x2A170B)     // text on a filled accent
+    // Choices on a book: solid colours of their own, so they stand out from the warm cards.
+    static let actionTranslate = Color(light: 0x1F5E8C, dark: 0x8FC4EC)
+    static let actionPolish = Color(light: 0x2E6B4A, dark: 0x92CFAC)
+    static let actionFiction = Color(light: 0x6D4590, dark: 0xC8A9E6)
+    static let actionNonfiction = Color(light: 0x495A6B, dark: 0xB2C3D3)
+    static let onAction = Color(light: 0xFFFFFF, dark: 0x15110E)
+    static let actionRemove = Color(light: 0xA9443A, dark: 0xE99388)
     static let danger = Color(light: 0xA9443A, dark: 0xE99388)
     static let dangerBg = Color(light: 0xF8E4E0, dark: 0x43241F)
     static let glowBg = Color(light: 0xFFDDB5, dark: 0x6A4220)       // the stage at work
@@ -118,9 +125,12 @@ struct Segmented<T: Hashable>: View {
 struct PrimaryButtonStyle: ButtonStyle {
     var radius: CGFloat = 9
     var fill: Color = Theme.accent
+    var vertical: CGFloat = 8
+    var horizontal: CGFloat = 18
+    var size: CGFloat = 13
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.onAccent)
-            .padding(.horizontal, 18).padding(.vertical, 8)
+        configuration.label.font(.system(size: size, weight: .medium)).foregroundStyle(Theme.onAccent)
+            .padding(.horizontal, horizontal).padding(.vertical, vertical)
             .background(configuration.isPressed ? fill.opacity(0.8) : fill, in: RoundedRectangle(cornerRadius: radius))
             .opacity(configuration.isPressed ? 0.9 : 1)
     }
@@ -142,11 +152,15 @@ struct IconButton: View {
     var help: String
     var size: CGFloat = 26
     var enabled = true
+    var fill: Color?                // a solid button of this colour, else just the symbol
     var action: () -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.neutralText)
-                .frame(width: size, height: size).contentShape(Rectangle())
+            Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+                .foregroundStyle(fill == nil ? Theme.neutralText : Theme.onAction)
+                .frame(width: size, height: size)
+                .background(fill ?? .clear, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.3).help(help)
     }

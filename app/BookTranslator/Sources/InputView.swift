@@ -27,9 +27,10 @@ struct InputView: View {
                 (Text(loc.t("input.uploaded")).font(.system(size: 15, weight: .semibold))
                  + Text(" · \(model.uploaded.count)").font(.system(size: 15)).foregroundColor(Theme.muted))
                 Spacer()
+                let canAddAll = model.uploaded.contains { $0.stage == .uploaded }
                 Button(loc.t("input.readyAll")) { model.makeAllReady() }
-                    .buttonStyle(GhostButtonStyle(tint: Theme.accent, bordered: false))
-                    .disabled(!model.uploaded.contains { $0.stage == .uploaded })
+                    .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12))
+                    .disabled(!canAddAll).opacity(canAddAll ? 1 : 0.4)
             }
             dropZone
             ScrollView {
@@ -60,7 +61,8 @@ struct InputView: View {
              + Text(loc.t("input.dropRest")).font(.system(size: 13)).foregroundColor(Theme.muted))
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
-            Button(loc.t("input.choose")) { choose() }.buttonStyle(GhostButtonStyle())
+            Button(loc.t("input.choose")) { choose() }
+                .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 6, horizontal: 12, size: 12.5))
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity).frame(height: 66)
@@ -150,34 +152,31 @@ struct GripDots: View {
     }
 }
 
-/// Translate the book, or only polish it (it is already translated).
-private struct ModeSwitch: View {
-    @Environment(AppModel.self) private var model
-    @Environment(Loc.self) private var loc
-    var book: QueueBook
+/// A drop-down on a book, filled with the colour of the value it shows.
+private struct RowMenu<Value: Hashable>: View {
+    var items: [(value: Value, title: String)]
+    @Binding var selection: Value
+    var fill: Color
+    var width: CGFloat
 
     var body: some View {
-        HStack(spacing: 2) {
-            segment("mode.translate", value: false)
-            segment("mode.polish", value: true)
+        Menu {
+            Picker("", selection: $selection) {
+                ForEach(items.indices, id: \.self) { Text(items[$0].title).tag(items[$0].value) }
+            }
+            .pickerStyle(.inline).labelsHidden()
+        } label: {
+            HStack(spacing: 4) {
+                Text(items.first { $0.value == selection }?.title ?? "").lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .heavy))
+            }
+            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.onAction)
+            .padding(.horizontal, 10).frame(width: width, height: UploadedRow.controlHeight)
+            .background(fill, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
         }
-        .padding(2)
-        .background(Theme.neutralBg, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.buttonLine))
-        .help(loc.t("input.modeHelp"))
-    }
-
-    private func segment(_ key: String, value: Bool) -> some View {
-        let on = book.polishOnly == value
-        return Button { model.setPolishOnly(book.id, value) } label: {
-            Text(loc.t(key)).font(.system(size: 11.5, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? Theme.onAccent : Theme.ink)
-                .lineLimit(1).fixedSize()
-                .padding(.horizontal, 9).frame(height: UploadedRow.controlHeight - 4)
-                .background(on ? Theme.accent : .clear, in: RoundedRectangle(cornerRadius: 6))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).accessibilityAddTraits(on ? .isSelected : [])
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
     }
 }
 
@@ -238,20 +237,18 @@ private struct UploadedRow: View {
     /// How the book is handled, as one group: translate or polish, fiction or not, and Add.
     private var controls: some View {
         HStack(spacing: 8) {
-            if book.canPolishOnly { ModeSwitch(book: book) }
-            Button { model.toggleKind(book.id) } label: {
-                HStack(spacing: 4) {
-                    Text(loc.t(book.kind.key))
-                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy))
-                }
-                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(book.kind.pillFg)
-                .lineLimit(1).fixedSize()
-                .frame(width: 80, height: Self.controlHeight)      // one width: the rows line up
-                .background(book.kind.pillBg, in: RoundedRectangle(cornerRadius: 8))
-                .contentShape(Rectangle())
-            }.buttonStyle(.plain).help(loc.t("input.kindHelp"))
+            if book.canPolishOnly {
+                RowMenu(items: [(false, loc.t("mode.translate")), (true, loc.t("mode.polish"))],
+                        selection: Binding(get: { book.polishOnly }, set: { model.setPolishOnly(book.id, $0) }),
+                        fill: book.polishOnly ? Theme.actionPolish : Theme.actionTranslate, width: 120)
+                    .help(loc.t("input.modeHelp"))
+            }
+            RowMenu(items: [BookKind.fiction, .nonfiction].map { ($0, loc.t($0.key)) },
+                    selection: Binding(get: { book.kind }, set: { if $0 != book.kind { model.toggleKind(book.id) } }),
+                    fill: book.kind == .fiction ? Theme.actionFiction : Theme.actionNonfiction, width: 92)
+                .help(loc.t("input.kindHelp"))
             Button(loc.t("input.prepare")) { model.makeReady(book.id) }
-                .buttonStyle(GhostButtonStyle(tint: Theme.accent)).fixedSize()
+                .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12)).fixedSize()
         }
     }
 }
@@ -276,9 +273,11 @@ private struct ReadyRow: View {
                     .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(2)
             }
             Spacer(minLength: 4)
-            IconButton(symbol: "chevron.up", help: loc.t("input.up"), enabled: model.canMove(book.id, by: -1)) { model.move(book.id, by: -1) }
-            IconButton(symbol: "chevron.down", help: loc.t("input.down"), enabled: model.canMove(book.id, by: 1)) { model.move(book.id, by: 1) }
-            IconButton(symbol: "xmark", help: loc.t("input.toUploaded")) { model.unready(book.id) }
+            IconButton(symbol: "chevron.up", help: loc.t("input.up"), enabled: model.canMove(book.id, by: -1),
+                       fill: Theme.actionNonfiction) { model.move(book.id, by: -1) }
+            IconButton(symbol: "chevron.down", help: loc.t("input.down"), enabled: model.canMove(book.id, by: 1),
+                       fill: Theme.actionNonfiction) { model.move(book.id, by: 1) }
+            IconButton(symbol: "xmark", help: loc.t("input.toUploaded"), fill: Theme.actionRemove) { model.unready(book.id) }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 11))

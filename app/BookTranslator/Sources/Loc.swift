@@ -262,7 +262,7 @@ final class Loc {
         "check.polished.length.ok": ("No part is far shorter than before", "Tidak ada bagian yang jauh lebih pendek dari sebelumnya"),
         "input.dropBold": ("Drop books here", "Seret buku ke sini"),
         "input.dropRest": (" · EPUB or TXT, as many as you like", " · EPUB atau TXT, boleh banyak"),
-        "input.kindHelp": ("Detected automatically. Click to change.", "Terdeteksi otomatis. Klik untuk mengubah."),
+        "input.kindHelp": ("Detected automatically. Choose to change.", "Terdeteksi otomatis. Pilih untuk mengubah."),
         "input.up": ("Move up", "Naikkan"),
         "input.down": ("Move down", "Turunkan"),
         "input.toUploaded": ("Return to the uploaded list", "Kembalikan ke daftar unggahan"),
