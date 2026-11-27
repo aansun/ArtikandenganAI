@@ -208,7 +208,9 @@ final class SnapshotTests: XCTestCase {
     }
 
     func testLibraryWithRealBook() throws {
-        let root = URL(fileURLWithPath: "/Users/me/NNAI-Translator/books")
+        // <repository>/books, four levels above this file: no path of one Mac is written here.
+        let root = (0..<4).reduce(URL(fileURLWithPath: #filePath)) { url, _ in url.deletingLastPathComponent() }
+            .appendingPathComponent("books")
         guard FileManager.default.fileExists(atPath: root.path) else { throw XCTSkip("no library") }
         let m = AppModel(env: BackendEnvironment(root: root.deletingLastPathComponent(), booksDir: root))
         m.library.books = LibraryStore.scan(root)

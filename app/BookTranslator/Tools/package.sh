@@ -40,13 +40,17 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 cp -R "$BUILT" "$STAGE/$NAME.app"
 xattr -cr "$STAGE/$NAME.app"
+# Debug symbols name every source and object file by its full path, home folder included.
+strip -S "$STAGE/$NAME.app/Contents/MacOS/$NAME"
+# Nothing that identifies the builder or this Mac may travel with the app.
+/usr/bin/python3 -I Tools/privacy_check.py "$STAGE" || { echo "the package was not made" >&2; exit 1; }
 codesign --force --deep --sign - "$STAGE/$NAME.app"
 codesign --verify --deep --strict "$STAGE/$NAME.app"
 
 ZIP="$OUT/NNAI-Translator-$VERSION.zip"
 DMG="$OUT/NNAI-Translator-$VERSION.dmg"
 rm -f "$ZIP" "$DMG"
-ditto -c -k --sequesterRsrc --keepParent "$STAGE/$NAME.app" "$ZIP"
+ditto -c -k --norsrc --noextattr --noqtn --keepParent "$STAGE/$NAME.app" "$ZIP"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -quiet -volname "$NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 

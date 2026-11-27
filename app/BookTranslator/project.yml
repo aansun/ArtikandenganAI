@@ -27,8 +27,9 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.productivity
-        # Where the Python engine lives; the app asks for it once if this is wrong.
-        BTBackendRoot: "$(SRCROOT)/../.."
+        # Development builds only: the repository they were built from. Empty in Release, so that a
+        # published app carries no path (and no user name) of the Mac that built it.
+        BTBackendRoot: "$(BT_BACKEND_ROOT)"
         # Latest-release JSON of the project's repository (GitHub releases API).
         BTUpdateFeed: "https://api.github.com/repos/aansun/NNAI-Translator/releases/latest"
     postBuildScripts:
@@ -49,6 +50,9 @@ targets:
         ENABLE_APP_SANDBOX: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: NO
+      configs:
+        Debug:
+          BT_BACKEND_ROOT: "$(SRCROOT)/../.."
   BookTranslatorTests:
     type: bundle.unit-test
     platform: macOS
