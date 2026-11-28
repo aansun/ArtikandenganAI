@@ -363,23 +363,31 @@ enum CoverFetcher {
 /// The user's own Google Books API key, kept in the Keychain (never in the repo or defaults).
 enum Secrets {
     private static let service = "com.aansun.BookTranslator"
-    private static let account = "googleBooksAPIKey"
 
     static var googleBooksKey: String {
-        get {
-            let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                        kSecAttrAccount as String: account, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
-            var out: AnyObject?
-            guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return "" }
-            return String(decoding: data, as: UTF8.self)
-        }
-        set {
-            let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-            SecItemDelete(base as CFDictionary)
-            guard !newValue.isEmpty else { return }
-            var add = base
-            add[kSecValueData as String] = Data(newValue.utf8)
-            SecItemAdd(add as CFDictionary, nil)
-        }
+        get { read("googleBooksAPIKey") }
+        set { write("googleBooksAPIKey", newValue) }
+    }
+    /// The app password of the mail server that sends to the Kindle.
+    static var kindlePassword: String {
+        get { read("kindleSMTPPassword") }
+        set { write("kindleSMTPPassword", newValue) }
+    }
+
+    private static func read(_ account: String) -> String {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                    kSecAttrAccount as String: account, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func write(_ account: String, _ value: String) {
+        let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+        SecItemDelete(base as CFDictionary)
+        guard !value.isEmpty else { return }
+        var add = base
+        add[kSecValueData as String] = Data(value.utf8)
+        SecItemAdd(add as CFDictionary, nil)
     }
 }

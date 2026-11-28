@@ -174,6 +174,22 @@ enum BackendClient {
         return try JSONDecoder().decode([EngineInfo].self, from: lastJSON(data))
     }
 
+    /// A Kindle command. Its answer is read whether it succeeded or not; `secrets` goes into the
+    /// environment of this one process.
+    static func kindle(_ env: BackendEnvironment, _ arguments: [String], secrets: [String: String] = [:]) async throws -> KindleAnswer {
+        guard env.isReady else { throw BackendError(message: "the translation engine is not ready (\(env.root.path))") }
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
+            let process = env.makeProcess(arguments)
+            process.environment = (process.environment ?? [:]).merging(secrets) { _, new in new }
+            let out = Pipe()
+            process.standardOutput = out
+            process.standardError = Pipe()
+            process.terminationHandler = { _ in continuation.resume(returning: out.fileHandleForReading.readDataToEndOfFile()) }
+            do { try process.run() } catch { continuation.resume(throwing: error) }
+        }
+        return try JSONDecoder.snake.decode(KindleAnswer.self, from: lastJSON(data))
+    }
+
     static func modelChoices(_ env: BackendEnvironment) async throws -> [String: ModelChoices] {
         let data = try await run(env, ["--list-models"])
         return try JSONDecoder().decode([String: ModelChoices].self, from: lastJSON(data))

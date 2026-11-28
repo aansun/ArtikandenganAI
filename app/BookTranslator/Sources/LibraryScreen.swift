@@ -159,6 +159,7 @@ struct LibraryScreen: View {
         return Button { openFolder = book.folder } label: {
             VStack(alignment: .leading, spacing: 5) {
                 CoverView(title: book.title, image: model.library.covers[book.folder], width: 146, height: 112, showTitle: true, radius: 5)
+                    .overlay(alignment: .topLeading) { kindleBadge(book) }
                 Text(book.title).font(.system(size: 12, weight: .semibold)).lineLimit(2).multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
                 Text(book.authorName).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
@@ -179,6 +180,18 @@ struct LibraryScreen: View {
         .buttonStyle(.plain).foregroundStyle(Theme.ink)
     }
 
+    /// On a cover: green when the book is on the Kindle, amber when it changed since it was sent.
+    @ViewBuilder private func kindleBadge(_ book: LibraryBook) -> some View {
+        if book.kindleMark != .none {
+            let sent = book.kindleMark == .sent
+            Label(loc.t(sent ? "kindle.mark.sent" : "kindle.mark.changed"), systemImage: "paperplane.fill")
+                .font(.system(size: 9.5, weight: .semibold)).foregroundStyle(Theme.onAction)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(sent ? Theme.actionPolish : Theme.warnIcon, in: Capsule())
+                .padding(6)
+        }
+    }
+
     /// Cover-first tile: a large rounded cover with the title, author and volume count under it.
     private func coverTile(_ book: LibraryBook) -> some View {
         let attention = needsAttention(book)
@@ -186,6 +199,7 @@ struct LibraryScreen: View {
             VStack(alignment: .leading, spacing: 10) {
                 CoverView(title: book.title, image: model.library.covers[book.folder], width: 176, height: 264, showTitle: true, radius: 14)
                     .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
+                    .overlay(alignment: .topLeading) { kindleBadge(book) }
                     .overlay(alignment: .topTrailing) {
                         if attention {
                             Image(systemName: "exclamationmark.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.warnIcon)

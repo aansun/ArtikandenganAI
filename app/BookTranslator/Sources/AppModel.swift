@@ -111,6 +111,15 @@ final class AppModel {
             env.engineModels = engineModels
         }
     }
+    var kindle = KindleSettings.load() {
+        didSet { if kindle != oldValue { kindle.save() } }
+    }
+    /// Whether the Keychain holds the mail password; the password itself is read only to send.
+    var kindlePasswordStored = UserDefaults.standard.bool(forKey: "kindlePasswordStored") {
+        didSet { UserDefaults.standard.set(kindlePasswordStored, forKey: "kindlePasswordStored") }
+    }
+    var kindleReady: Bool { kindle.isComplete && kindlePasswordStored }
+    var kindleSending: String?          // "<folder>#<volume>" while a file is on its way
     /// What each engine offers, asked when Settings opens.
     var modelChoices: [String: ModelChoices] = [:]
     var targetLanguage: String = UserDefaults.standard.string(forKey: "targetLanguage") ?? "Indonesian" {
@@ -930,6 +939,57 @@ final class AppModel {
         guard chosen != engineModels else { return }
         engineModels = chosen
         refreshEngines(force: true)
+    }
+
+    // MARK: - Kindle
+
+    func saveKindlePassword(_ password: String) {
+        Secrets.kindlePassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        kindlePasswordStored = !Secrets.kindlePassword.isEmpty
+    }
+
+    func removeKindlePassword() {
+        Secrets.kindlePassword = ""
+        kindlePasswordStored = false
+    }
+
+    /// The words for an answer of the engine that says why nothing worked.
+    static func kindleError(_ answer: KindleAnswer, _ loc: Loc) -> String {
+        let code = answer.error ?? "connection"
+        let text = loc.t(Loc.table["kindle.error.\(code)"] != nil ? "kindle.error.\(code)" : "kindle.error.connection")
+        guard let detail = answer.detail?.nonEmpty else { return text }
+        return "\(text) (\(detail))"
+    }
+
+    /// Signs in to the mail server and sends nothing. Returns what to tell the user.
+    func testKindle() async -> (ok: Bool, text: String) {
+        do {
+            let answer = try await BackendClient.kindle(env, ["--kindle-test"], secrets: kindle.environment(password: Secrets.kindlePassword))
+            return answer.ok == true ? (true, Loc.shared.t("kindle.testOK")) : (false, Self.kindleError(answer, Loc.shared))
+        } catch { return (false, error.localizedDescription) }
+    }
+
+    func kindleFiles(_ folder: String) async -> [KindleFile] {
+        let answer = try? await BackendClient.kindle(env, ["--kindle-check", env.booksDir.appendingPathComponent(folder).path])
+        return answer?.files ?? []
+    }
+
+    func sendToKindle(_ folder: String, volume: Int, resend: Bool) async -> (ok: Bool, text: String) {
+        guard kindleSending == nil, kindleReady else { return (false, Loc.shared.t("kindle.setUp")) }
+        kindleSending = "\(folder)#\(volume)"
+        defer { kindleSending = nil }
+        let arguments = ["--kindle-send", env.booksDir.appendingPathComponent(folder).path, "--volumes", "\(volume)"]
+            + (resend ? ["--resend"] : [])
+        do {
+            let answer = try await BackendClient.kindle(env, arguments, secrets: kindle.environment(password: Secrets.kindlePassword))
+            library.reload(env: env, force: true)
+            guard let result = answer.results?.first else { return (false, Self.kindleError(answer, Loc.shared)) }
+            switch result.result {
+            case "sent": return (true, Loc.shared.t("kindle.sentNote", kindle.to))
+            case "already": return (true, Loc.shared.t("kindle.already"))
+            default: return (false, "\(Loc.shared.t("kindle.notSent")) (\(result.detail))")
+            }
+        } catch { return (false, error.localizedDescription) }
     }
 
     // MARK: - Checking a finished book again

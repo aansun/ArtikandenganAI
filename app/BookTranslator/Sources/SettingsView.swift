@@ -8,6 +8,9 @@ struct SettingsView: View {
     @Environment(AppearanceStore.self) private var appearance
     @State private var apiKey = ""
     @State private var summaryCopied: Bool?
+    @State private var kindlePassword = ""
+    @State private var kindleTest: (ok: Bool, text: String)?
+    @State private var kindleTesting = false
     var height: CGFloat = 820            // the window scrolls; the screen tests render it whole
     @State private var keyStored = !Secrets.googleBooksKey.isEmpty
 
@@ -99,6 +102,8 @@ struct SettingsView: View {
                     divider
                     row(loc.t("settings.addToBooks"), loc.t("settings.addToBooksHint")) { Toggle("", isOn: $model.addToBooks).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
                 }
+
+                kindleBlock
 
                 group {
                     row(loc.t("settings.onlineMeta"), loc.t("settings.onlineMetaHint")) {
@@ -218,6 +223,63 @@ struct SettingsView: View {
         case .failed(let message):
             Text(loc.t("settings.updateFailed", message)).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 10)
         default: EmptyView()
+        }
+    }
+
+    // MARK: - Kindle
+
+    private var kindleBlock: some View {
+        @Bindable var model = model
+        return group {
+            row(loc.t("kindle.title"), loc.t("kindle.hint")) { EmptyView() }
+            divider
+            row(loc.t("kindle.to"), model.kindle.to.isEmpty || model.kindle.toLooksRight ? loc.t("kindle.toHint") : loc.t("kindle.error.kindle_address")) {
+                TextField("nama@kindle.com", text: $model.kindle.to).textFieldStyle(.roundedBorder).frame(width: 260)
+            }
+            divider
+            row(loc.t("kindle.from"), loc.t("kindle.fromHint")) {
+                TextField("anda@gmail.com", text: $model.kindle.from).textFieldStyle(.roundedBorder).frame(width: 260)
+            }
+            divider
+            row(loc.t("kindle.server"), model.kindle.server == .other ? loc.t("kindle.serverHint") : "\(model.kindle.host):\(model.kindle.port)") {
+                Segmented(items: KindleServer.allCases.map { ($0, $0 == .other ? loc.t("kindle.server.other") : $0.label) },
+                          selection: $model.kindle.server, fontSize: 12.5, hPad: 10)
+            }
+            if model.kindle.server == .other {
+                divider
+                row(loc.t("kindle.custom"), loc.t("kindle.customHint")) {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        HStack(spacing: 6) {
+                            TextField("smtp.example.com", text: $model.kindle.customHost).textFieldStyle(.roundedBorder).frame(width: 190)
+                            TextField("587", text: $model.kindle.customPort).textFieldStyle(.roundedBorder).frame(width: 60)
+                        }
+                        TextField(loc.t("kindle.user"), text: $model.kindle.user).textFieldStyle(.roundedBorder).frame(width: 256)
+                    }
+                }
+            }
+            divider
+            row(loc.t("kindle.password"), loc.t("kindle.passwordHint")) {
+                HStack {
+                    if model.kindlePasswordStored {
+                        Pill(text: loc.t("settings.keySaved"), bg: Theme.okBg, fg: Theme.okText, size: 12)
+                        Button(loc.t("settings.keyRemove")) { model.removeKindlePassword(); kindleTest = nil }.buttonStyle(GhostButtonStyle())
+                    } else {
+                        SecureField(loc.t("kindle.password"), text: $kindlePassword).textFieldStyle(.roundedBorder).frame(width: 190)
+                        Button(loc.t("settings.keySave")) { model.saveKindlePassword(kindlePassword); kindlePassword = "" }
+                            .buttonStyle(GhostButtonStyle()).disabled(kindlePassword.isEmpty)
+                    }
+                }
+            }
+            divider
+            row(loc.t("kindle.test"), kindleTest?.text ?? loc.t("kindle.testHint")) {
+                Button(kindleTesting ? loc.t("kindle.testing") : loc.t("kindle.test")) {
+                    kindleTesting = true
+                    Task { kindleTest = await model.testKindle(); kindleTesting = false }
+                }
+                .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12.5))
+                .disabled(!model.kindleReady || kindleTesting || !model.env.isReady)
+                .opacity(model.kindleReady ? 1 : 0.4)
+            }
         }
     }
 

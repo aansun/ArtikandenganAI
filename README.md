@@ -26,6 +26,10 @@ order, and they are translated one after another while you do something else.
 - **A translation log you control.** Which model translated, how fast and how cleanly, kept on your Mac to
   improve the recommendations. No book text, and nothing is sent; switch it off in Settings
   ([what it records](docs/TRANSLATION_LOG.md)).
+- **Send to Kindle.** E-mail a finished book to your Kindle from its page. Title, author, language
+  and cover are checked first, books already sent are marked, and a changed one can be sent again.
+  You enter your Kindle address, your sender address and an app password once; the password stays in
+  the Keychain.
 - **A library.** Finished books appear with their covers. Check the metadata, fix a field, or look the book
   up online by its ISBN (Open Library, Google Books) before you put it in Apple Books.
 - **Your Mac.** Light and dark theme, English or Indonesian menus, 18 target languages

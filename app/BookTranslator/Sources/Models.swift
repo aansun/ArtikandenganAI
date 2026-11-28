@@ -291,6 +291,7 @@ struct LibraryBook: Codable, Identifiable, Equatable {
     var authorName: String = ""    // set by the loader from the first EPUB
     var series: String = ""        // set by the loader from the first EPUB
     var check: CheckReport?        // set by the loader from check.json
+    var kindleMark = KindleMark.none   // set by the loader from kindle.json
 
     var id: String { folder }
     var isPolishOnly: Bool { mode == "polish" }

@@ -37,6 +37,7 @@ ensure_utf8_stdio()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from src.core.agent import AgentOptions, BookAgent, engines as engines_mod, library, parse_volume_selection  # noqa: E402
+from src.core.agent import kindle  # noqa: E402
 from src.core.agent import log_report  # noqa: E402
 from src.core.agent import models as model_list  # noqa: E402
 from src.core.llm import activity  # noqa: E402
@@ -99,6 +100,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Mend a finished translation without asking a model (paragraphs cut inside "
                         "a sentence, front-matter contents entries), check it again and exit. The "
                         "old files are kept in <book>/previous/.")
+    p.add_argument("--kindle-check", metavar="BOOK_FOLDER",
+                   help="Print, as JSON, what a Kindle would read from each finished volume, what is "
+                        "wrong with it and whether it was sent.")
+    p.add_argument("--kindle-send", metavar="BOOK_FOLDER",
+                   help="E-mail the finished volumes (all, or --volumes) to your Kindle, skipping "
+                        "those already sent unchanged. Settings come from the environment: "
+                        "KINDLE_TO, KINDLE_FROM, KINDLE_SMTP_HOST, KINDLE_SMTP_PORT, "
+                        "KINDLE_SMTP_USER, KINDLE_SMTP_PASSWORD (never from the command line).")
+    p.add_argument("--resend", action="store_true",
+                   help="With --kindle-send: send even a file that was already sent.")
+    p.add_argument("--kindle-test", action="store_true",
+                   help="Sign in to the mail server with the Kindle settings and send nothing.")
     p.add_argument("--detect", action="store_true",
                    help="Print the engines found on this machine as JSON and exit.")
     p.add_argument("--inspect", metavar="FILE",
@@ -246,6 +259,29 @@ def _repair(parser, args, root) -> int:
     return BookAgent(AgentOptions(input_path=source, books_dir=root, workdir=folder), say=_say).repair()
 
 
+def _kindle(parser, args) -> int:
+    """The Kindle commands: one line of JSON on stdout; exit 0 only when all went well."""
+    def answer(data: dict, code: int) -> int:
+        print(json.dumps(data, ensure_ascii=False))
+        return code
+
+    try:
+        if args.kindle_test:
+            kindle.connect(kindle.Settings.from_environment()).quit()
+            return answer({"ok": True}, 0)
+        folder = Path(args.kindle_check or args.kindle_send)
+        if not (folder / "book.json").is_file():
+            parser.error(f"not a book folder: {folder}")
+        if args.kindle_check:
+            return answer(kindle.run_check(folder), 0)
+        results = kindle.send(folder, kindle.Settings.from_environment(), resend=args.resend,
+                              volumes=parse_volume_selection(args.volumes) if args.volumes else None)
+        done = all(r["result"] in ("sent", "already") for r in results) and bool(results)
+        return answer({"ok": done, "results": results}, 0 if done else 1)
+    except kindle.KindleError as exc:
+        return answer({"ok": False, "error": exc.code, "detail": exc.detail}, 1)
+
+
 def _check_tools(parser, provider: str) -> None:
     if provider == PROVIDER_AUTO:
         return  # the engines are detected, and reported, when the run starts
@@ -288,7 +324,7 @@ def _selfcheck() -> int:
              "src.core.llm.providers.chain", "src.core.agent.models",
              "src.core.agent.log_report", "src.core.llm.activity", "src.core.agent.series",
              "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check", "src.core.llm.voice",
-             "src.core.agent.layout_repair"]
+             "src.core.agent.layout_repair", "src.core.agent.kindle"]
     missing = []
     for name in names:
         try:
@@ -347,6 +383,8 @@ def main(argv=None) -> int:
     keep_log = args.log and os.getenv("AGENT_LOG", "").strip() != "0"
     activity.configure(root / log_report.FOLDER if keep_log else None,
                        app_version=os.getenv("NNAI_APP_VERSION", ""))
+    if args.kindle_check or args.kindle_send or args.kindle_test:
+        return _kindle(parser, args)
     if args.check:
         return _check(parser, args, root)
     if args.repair:

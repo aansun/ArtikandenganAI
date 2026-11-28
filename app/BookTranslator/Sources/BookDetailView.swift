@@ -56,6 +56,7 @@ struct BookDetailView: View {
                 }.buttonStyle(.plain)
                 header
                 volumes
+                KindleCard(book: book)
                 CheckCard(book: book)
             }
             .padding(.horizontal, 24).padding(.vertical, 18)
@@ -142,7 +143,7 @@ struct BookDetailView: View {
             Field(id: "title", label: loc.t("meta.title"), value: m.title, note: loc.t("meta.titleNote"), ok: has(m.title)),
             Field(id: "creator", label: loc.t("meta.creator"), value: m.creators.joined(separator: ", "), ok: !m.creators.isEmpty),
             Field(id: "publisher", label: loc.t("meta.publisher"), value: m.publisher, note: has(m.publisher) ? "" : loc.t("meta.optional"), ok: true),
-            Field(id: "language", label: loc.t("meta.language"), value: isId ? "\(loc.t("lang.id")) (id)" : m.language, ok: has(m.language), editable: false),
+            Field(id: "language", label: loc.t("meta.language"), value: isId ? "\(loc.t("lang.id")) (id)" : m.language, ok: has(m.language)),
         ]
         if book.volumes.count > 1 || has(m.series) {
             let series = has(m.series) ? m.series + (m.seriesIndex.isEmpty ? "" : " · \(loc.t("meta.seriesNote")) \(m.displaySeriesIndex)") : loc.t("meta.seriesNone")
@@ -246,6 +247,7 @@ struct BookDetailView: View {
         case "date": return m.date
         case "publisher": return m.publisher
         case "isbn": return m.isbn ?? ""
+        case "language": return m.language
         default: return ""
         }
     }

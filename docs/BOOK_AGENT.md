@@ -143,6 +143,22 @@ you give one (`--glossary`).
 `garbled` (damaged characters), `scanned` (converted from a scan) and `broken_paragraphs` (many
 paragraphs break inside a sentence). A publisher's copy of the same book gives a better result.
 
+## Send to Kindle
+
+`--kindle-check <book folder>` prints what a Kindle would read from each finished volume (title,
+author, language, cover, size), its problems and whether it was sent. `--kindle-send <book folder>`
+e-mails the volumes (all, or `--volumes`) to the Send to Kindle address with Python's `smtplib`,
+over an encrypted connection (port 465, else STARTTLS); `--kindle-test` only signs in. The settings
+come from the environment, never the command line: `KINDLE_TO`, `KINDLE_FROM`, `KINDLE_SMTP_HOST`,
+`KINDLE_SMTP_PORT`, `KINDLE_SMTP_USER` (when it differs from the sender), `KINDLE_SMTP_PASSWORD`.
+In the app they are filled in under Settings and the password is kept in the Keychain.
+
+A volume is not sent without a title, an author and a language, when the file is damaged or when it
+is over 50 MB. What was sent is kept in `<book>/kindle.json` (volume, file fingerprint, title,
+time; no address): the same file is skipped unless `--resend`, and a changed file shows as changed.
+"Sent" means your mail server took the message; Amazon delivers it only when the sender is on its
+approved list.
+
 ## Where things go
 
 ```

@@ -104,7 +104,8 @@ final class ModelDecodingTests: XCTestCase {
 final class QueueTests: XCTestCase {
     /// These tests run in the app's own defaults: put back every setting they change.
     private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode", "verifiedBooks",
-                                      "keepModel", "engineModels", "engineOrder"]
+                                      "keepModel", "engineModels", "engineOrder",
+                                      "kindle", "kindlePasswordStored"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -323,6 +324,63 @@ final class QueueTests: XCTestCase {
         XCTAssertTrue(m.engineModels.isEmpty)
         XCTAssertFalse(m.env.makeProcess(["--detect"]).arguments?.contains("--engine-model") ?? true)
         XCTAssertEqual(EngineInfo.display("gpt-6-luna@medium"), "gpt-6-luna (medium)")
+    }
+
+    func testKindleSettingsAreCompleteOnlyWithRealAddresses() {
+        var k = KindleSettings()
+        XCTAssertFalse(k.isComplete)
+        k.to = "reader@kindle.com"; k.from = "me@example.org"
+        XCTAssertTrue(k.isComplete)
+        XCTAssertEqual([k.host, k.port], ["smtp.gmail.com", "587"])
+        k.to = "reader@example.org"
+        XCTAssertFalse(k.isComplete)                           // not a Send to Kindle address
+        k.to = " reader@free.kindle.com "; k.server = .other
+        XCTAssertFalse(k.isComplete)                           // no server named yet
+        k.customHost = "mail.example.org"; k.customPort = "465"; k.user = "me"
+        XCTAssertTrue(k.isComplete)
+        let env = k.environment(password: "xxxx xxxx")
+        XCTAssertEqual(env["KINDLE_TO"], "reader@free.kindle.com")
+        XCTAssertEqual(env["KINDLE_SMTP_USER"], "me")
+        XCTAssertEqual(env["KINDLE_SMTP_PASSWORD"], "xxxx xxxx")
+        k.server = .gmail
+        XCTAssertEqual(k.environment(password: "xxxx xxxx")["KINDLE_SMTP_PASSWORD"], "xxxxxxxx")
+        let suite = "kindle-test-\(UUID().uuidString)"
+        let store = UserDefaults(suiteName: suite)!
+        defer { store.removePersistentDomain(forName: suite) }
+        k.save(store)
+        XCTAssertEqual(KindleSettings.load(store), k)
+        XCTAssertNil((store.dictionary(forKey: "kindle") as? [String: String])?["password"])
+    }
+
+    func testALibraryBookIsMarkedSentUntilItsFileChanges() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("bt-k-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("a.epub")
+        try Data("one".utf8).write(to: file)
+        let volume = VolumeInfo(index: 1, label: "a", output: file.path, status: "completed")
+        XCTAssertEqual(KindleMark.of(folder: folder, volumes: [volume]), .none)
+        let sha = "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"          // of "one"
+        try Data(#"{"sent":[{"volume":1,"sha256":"\#(sha)"}]}"#.utf8).write(to: folder.appendingPathComponent("kindle.json"))
+        XCTAssertEqual(KindleMark.of(folder: folder, volumes: [volume]), .sent)
+        let second = VolumeInfo(index: 2, label: "b", output: file.path, status: "completed")
+        XCTAssertEqual(KindleMark.of(folder: folder, volumes: [volume, second]), .none)   // one still to send
+        try Data("two".utf8).write(to: file)
+        XCTAssertEqual(KindleMark.of(folder: folder, volumes: [volume]), .changed)
+    }
+
+    func testAKindleAnswerOfTheEngineIsRead() throws {
+        let json = #"{"files":[{"volume":1,"title":"A","author":"B","language":"id","cover":true,"series":"","bytes":9,"problems":["cover"],"state":"sent","sent_at":"2026-11-28T01:00:00Z","blocked":false,"sha256":"x"}]}"#
+        let answer = try JSONDecoder.snake.decode(KindleAnswer.self, from: Data(json.utf8))
+        XCTAssertEqual(answer.files?.first?.state, "sent")
+        XCTAssertFalse(KindleCard.day("2026-11-28T01:00:00Z", Loc.shared).isEmpty)
+        let failed = try JSONDecoder.snake.decode(KindleAnswer.self, from: Data(#"{"ok":false,"error":"sign_in","detail":"535"}"#.utf8))
+        XCTAssertTrue(AppModel.kindleError(failed, Loc.shared).hasSuffix("(535)"))
+        for code in ["settings", "kindle_address", "sender_address", "sign_in", "sender_refused", "recipient_refused", "message_refused", "encryption", "connection", "book"] {
+            XCTAssertNotNil(Loc.table["kindle.error.\(code)"], code)
+        }
+        for problem in ["unreadable", "too_large", "title", "author", "language", "language_differs", "title_like_file_name", "damaged_characters", "cover", "same_title"] {
+            XCTAssertNotNil(Loc.table["kindle.problem.\(problem)"], problem)
+        }
     }
 
     func testTheReadyCardWordingFollowsItsBooks() {
