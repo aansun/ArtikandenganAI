@@ -150,15 +150,16 @@ struct KindleCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "paperplane.fill").foregroundStyle(Theme.accent)
-                    Text(loc.t("kindle.title")).font(.system(size: 13, weight: .semibold))
+                    Text("Kindle").font(.system(size: 13, weight: .semibold)).fixedSize().help(loc.t("kindle.title"))
+                    Spacer(minLength: 4)
+                    if !model.kindleReady {
+                        ToolButton(symbol: "gearshape", help: loc.t("kindle.setUp"), tint: Theme.accent) { openSettings() }
+                    } else if files.count == 1, let file = files.first {
+                        state(file).fixedSize()
+                        sendButton(file)
+                    }
                 }
                 ForEach(files) { row($0) }
-                if !model.kindleReady {
-                    Text(loc.t("kindle.setUp")).font(.system(size: 11)).foregroundStyle(Theme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(loc.t("kindle.openSettings")) { openSettings() }
-                        .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12.5))
-                }
                 if !message.isEmpty {
                     Text(message).font(.system(size: 11)).foregroundStyle(failed ? Theme.danger : Theme.okText)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
@@ -178,29 +179,36 @@ struct KindleCard: View {
         }
     }
 
-    private func row(_ file: KindleFile) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+    /// What the Kindle will read from the file, shown when the pointer rests on its row.
+    private func details(_ file: KindleFile) -> String {
+        [file.title, file.author, file.language].map { $0.isEmpty ? "—" : $0 }.joined(separator: " · ")
+    }
+
+    private func sendButton(_ file: KindleFile) -> some View {
+        let sending = model.kindleSending == "\(book.folder)#\(file.volume)"
+        let words = loc.t(sending ? "kindle.sending" : (file.state == "new" ? "kindle.send" : "kindle.resend"))
+        return ToolButton(symbol: sending ? "hourglass" : (file.state == "sent" ? "arrow.clockwise" : "paperplane.fill"),
+                          help: "\(words): \(details(file))", tint: Theme.accent,
+                          fill: file.state == "sent" ? nil : Theme.accent) { asking = file }
+            .disabled(file.blocked || !model.kindleReady || model.kindleSending != nil)
+    }
+
+    @ViewBuilder private func row(_ file: KindleFile) -> some View {
+        if files.count > 1 {
             HStack(spacing: 6) {
-                if files.count > 1 { Text(loc.t("detail.volumeN", file.volume)).font(.system(size: 12, weight: .semibold)) }
-                state(file).fixedSize()
+                Text(loc.t("detail.volumeN", file.volume)).font(.system(size: 12, weight: .semibold)).help(details(file))
                 Spacer(minLength: 4)
-                Button(model.kindleSending == "\(book.folder)#\(file.volume)" ? loc.t("kindle.sending")
-                       : loc.t(file.state == "new" ? "kindle.send" : "kindle.resend")) { asking = file }
-                    .buttonStyle(PrimaryButtonStyle(radius: 8, fill: file.state == "sent" ? Theme.actionNonfiction : Theme.accent,
-                                                    vertical: 4, horizontal: 10, size: 12))
-                    .disabled(file.blocked || !model.kindleReady || model.kindleSending != nil)
-                    .opacity(file.blocked || !model.kindleReady ? 0.4 : 1)
+                state(file).fixedSize()
+                if model.kindleReady { sendButton(file) }
             }
-            Text("\(file.title.isEmpty ? "—" : file.title) · \(file.author.isEmpty ? "—" : file.author) · \(file.language.isEmpty ? "—" : file.language)")
-                .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(2)
-            ForEach(file.problems.filter { Loc.table["kindle.problem.\($0)"] != nil }, id: \.self) { problem in
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Image(systemName: KindleFile.blockingProblems.contains(problem) ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                    Text(loc.t("kindle.problem.\(problem)")).fixedSize(horizontal: false, vertical: true)
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(KindleFile.blockingProblems.contains(problem) ? Theme.danger : Theme.warnIcon)
+        }
+        ForEach(file.problems.filter { Loc.table["kindle.problem.\($0)"] != nil }, id: \.self) { problem in
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Image(systemName: KindleFile.blockingProblems.contains(problem) ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                Text(loc.t("kindle.problem.\(problem)")).fixedSize(horizontal: false, vertical: true)
             }
+            .font(.system(size: 11))
+            .foregroundStyle(KindleFile.blockingProblems.contains(problem) ? Theme.danger : Theme.warnIcon)
         }
     }
 

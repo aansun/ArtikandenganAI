@@ -75,45 +75,77 @@ struct CheckCard: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
     var book: LibraryBook
+    @State var open = false                 // closed until asked: the header already says the verdict
     @State private var failure = ""
 
     var body: some View {
         CardBox {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: CheckStyle.symbol(book.check?.overall ?? "info"))
-                        .foregroundStyle(CheckStyle.color(book.check?.overall ?? "info"))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(loc.t("check.title")).font(.system(size: 13, weight: .semibold))
-                        Text(CheckStyle.verdict(book.check, loc)).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                ForEach(book.check?.volumes ?? [], id: \.index) { volume in
-                    if (book.check?.volumes.count ?? 0) > 1 {
-                        Text(loc.t("detail.volumeN", volume.index)).font(.system(size: 12, weight: .semibold)).padding(.top, 2)
-                    }
-                    ForEach(volume.checks) { line($0) }
-                }
-                if book.check != nil { Text(loc.t(book.isPolishOnly ? "check.limitPolish" : "check.limit")).font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true) }
-                if !failure.isEmpty { Text(failure).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(3) }
-                HStack(spacing: 6) {
-                    if book.check?.canRepair == true && !book.isPolishOnly {
-                        Button(loc.t("check.repair")) {
-                            Task { failure = await model.repair(book.folder) ?? "" }
-                        }.buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12.5))
-                            .disabled(model.checking != nil || !model.env.isReady || !model.canDelete(book.folder))
-                            .help(loc.t("check.repairHelp"))
-                    }
-                    Button(model.checking == book.folder ? loc.t("check.running") : loc.t(book.check == nil ? "check.run" : "check.again")) {
-                        Task { failure = await model.recheck(book.folder) ?? "" }
-                    }.buttonStyle(GhostButtonStyle()).disabled(model.checking != nil || !model.env.isReady)
-                    if let report = book.qaReport, !report.isEmpty, FileManager.default.fileExists(atPath: report) {
-                        Button(loc.t("detail.qaOpen")) { NSWorkspace.shared.open(URL(fileURLWithPath: report)) }.buttonStyle(GhostButtonStyle())
-                    }
-                }
+                header
+                if open { details }
             }
             .padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Notes for information do not stand against a book that passed.
+    private var headerLevel: String {
+        guard let report = book.check else { return "info" }
+        return report.needsLook ? report.overall : "ok"
+    }
+
+    private var short: String {
+        guard let report = book.check else { return loc.t("check.short.none") }
+        return report.problems > 0 ? loc.t("check.short.some", report.problems) : loc.t("check.short.ok")
+    }
+
+    private var header: some View {
+        Button { open.toggle() } label: {
+            HStack(spacing: 8) {
+                Image(systemName: CheckStyle.symbol(headerLevel)).foregroundStyle(CheckStyle.color(headerLevel))
+                Text(loc.t("check.title")).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Spacer(minLength: 4)
+                if model.checking == book.folder { ProgressView().controlSize(.small) }
+                Text(short).font(.system(size: 12))
+                    .foregroundStyle(book.check?.needsLook == true ? CheckStyle.color(book.check?.overall ?? "info") : Theme.muted)
+                Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.faint).frame(width: 12)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).help(CheckStyle.verdict(book.check, loc))
+    }
+
+    @ViewBuilder private var details: some View {
+        if book.check?.needsLook == true {
+            Text(CheckStyle.verdict(book.check, loc)).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        ForEach(book.check?.volumes ?? [], id: \.index) { volume in
+            if (book.check?.volumes.count ?? 0) > 1 {
+                Text(loc.t("detail.volumeN", volume.index)).font(.system(size: 12, weight: .semibold)).padding(.top, 2)
+            }
+            ForEach(volume.checks) { line($0) }
+        }
+        if book.check != nil { Text(loc.t(book.isPolishOnly ? "check.limitPolish" : "check.limit")).font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true) }
+        if !failure.isEmpty { Text(failure).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(3) }
+        HStack(spacing: 6) {
+            if book.check?.canRepair == true && !book.isPolishOnly {
+                Button {
+                    Task { failure = await model.repair(book.folder) ?? "" }
+                } label: { Label(loc.t("check.repair"), systemImage: "wrench.and.screwdriver.fill") }
+                    .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12.5))
+                    .disabled(model.checking != nil || !model.env.isReady || !model.canDelete(book.folder))
+                    .help(loc.t("check.repairHelp"))
+            }
+            ToolButton(symbol: "arrow.clockwise", help: loc.t(book.check == nil ? "check.run" : "check.again")) {
+                Task { failure = await model.recheck(book.folder) ?? "" }
+            }.disabled(model.checking != nil || !model.env.isReady)
+            if let report = book.qaReport, !report.isEmpty, FileManager.default.fileExists(atPath: report) {
+                ToolButton(symbol: "doc.text", help: loc.t("detail.qaOpen")) {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: report))
+                }
+            }
         }
     }
 

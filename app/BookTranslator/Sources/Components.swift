@@ -166,6 +166,69 @@ struct IconButton: View {
     }
 }
 
+/// A bordered button that is only a symbol; its words are the tooltip and the spoken label.
+struct ToolButton: View {
+    var symbol: String
+    var help: String
+    var tint: Color = Theme.ink
+    var fill: Color?                 // solid when given
+    var action: () -> Void
+    var body: some View {
+        Button(action: action) { ToolLabel(symbol: symbol, tint: tint, fill: fill) }
+            .buttonStyle(.plain).help(help).accessibilityLabel(help)
+    }
+}
+
+/// The face of a symbol button, also used by menus.
+struct ToolLabel: View {
+    var symbol: String
+    var tint: Color = Theme.ink
+    var fill: Color?
+    @Environment(\.isEnabled) private var enabled
+    var body: some View {
+        Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(fill == nil ? tint : Theme.onAccent)
+            .frame(width: 34, height: 30)
+            .background(fill ?? Theme.card, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(fill == nil ? Theme.buttonLine : .clear))
+            .contentShape(Rectangle())
+            .opacity(enabled ? 1 : 0.4)
+    }
+}
+
+/// A full-width row of a list of actions: a symbol and a word or two.
+struct ActionRow: View {
+    var symbol: String
+    var title: String
+    var help: String
+    var tint: Color = Theme.accent
+    var action: () -> Void
+    var body: some View {
+        Button(action: action) { ActionLabel(symbol: symbol, title: title, tint: tint) }
+            .buttonStyle(.plain).help(help)
+    }
+}
+
+/// The face of an action row, also used by menus.
+struct ActionLabel: View {
+    var symbol: String
+    var title: String
+    var tint: Color = Theme.accent
+    var trailing: String?
+    @Environment(\.isEnabled) private var enabled
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint).frame(width: 18)
+            Text(title).font(.system(size: 13)).foregroundStyle(Theme.ink)
+            Spacer(minLength: 0)
+            if let trailing { Image(systemName: trailing).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.faint) }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        .opacity(enabled ? 1 : 0.4)
+    }
+}
+
 enum Covers {
     private static let palette: [(UInt32, UInt32)] = [
         (0x1F4E5A, 0x0D2730), (0x4A5F8A, 0x252F4A), (0x5B4A78, 0x2A2140), (0x6B7A45, 0x35401F), (0x8A2F3A, 0x431219),
