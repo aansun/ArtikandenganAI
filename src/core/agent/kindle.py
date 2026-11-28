@@ -43,8 +43,14 @@ KINDLE_DOMAINS = ("kindle.com", "free.kindle.com", "kindle.cn")
 ENVIRONMENT = ("KINDLE_TO", "KINDLE_FROM", "KINDLE_SMTP_HOST", "KINDLE_SMTP_PORT",
                "KINDLE_SMTP_USER", "KINDLE_SMTP_PASSWORD")
 TIMEOUT = 120
+#: How this computer greets the mail server. Its own name can hold its owner's, and on a Mac
+#: it is sometimes a reversed network address that servers turn away.
+GREETING = "[127.0.0.1]"
 #: Problems that stop a file from being sent; the others are only told.
-BLOCKING = ("unreadable", "too_large", "title", "author", "language")
+BLOCKING = ("unreadable", "too_large", "title", "author", "author_email", "language")
+#: What a title or an author says when whoever made the file did not know it.
+PLACEHOLDERS = ("unknown", "tidak diketahui")
+_ADDRESS_INSIDE = re.compile(r"[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}")
 _ADDRESS = re.compile(r"^[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}$")
 _FILE_NAME_TITLE = re.compile(r"_|z-?lib|\b1lib\b|libgen|\.epub\b|\(\d+\)\s*$", re.I)
 
@@ -120,10 +126,12 @@ def inspect_file(path: Path, target_language: str = "Indonesian") -> dict:
     size = path.stat().st_size
     if size > MAX_BYTES:
         problems.append("too_large")
-    if not title:
+    if not title or title.strip().lower() in PLACEHOLDERS:
         problems.append("title")
-    if not author or author.strip().lower() in ("unknown", "tidak diketahui"):
+    if not author or author.strip().lower() in PLACEHOLDERS:
         problems.append("author")
+    elif _ADDRESS_INSIDE.search(author):     # a file's maker left an e-mail address there
+        problems.append("author_email")
     if not language:
         problems.append("language")
     else:
@@ -210,22 +218,43 @@ def connect(settings: Settings) -> smtplib.SMTP:
     context = ssl.create_default_context()
     try:
         if settings.port == 465:
-            server = smtplib.SMTP_SSL(settings.host, settings.port, timeout=TIMEOUT, context=context)
+            server = smtplib.SMTP_SSL(settings.host, settings.port, local_hostname=GREETING,
+                                      timeout=TIMEOUT, context=context)
         else:
-            server = smtplib.SMTP(settings.host, settings.port, timeout=TIMEOUT)
+            server = smtplib.SMTP(settings.host, settings.port, local_hostname=GREETING, timeout=TIMEOUT)
             try:
                 server.starttls(context=context)        # raises when the server cannot encrypt
             except Exception:
                 server.close()
                 raise
         try:
-            server.login(settings.user, settings.password)
+            _sign_in(server, settings)
         except Exception:
             server.close()
             raise
+    except KindleError:
+        raise
     except Exception as exc:
         raise _explain(exc, settings) from None
     return server
+
+
+def _sign_in(server: smtplib.SMTP, settings: Settings) -> None:
+    """Sign in with one attempt, so that a refusal is told as one.
+
+    ``smtplib`` tries one method after another. Gmail hangs up after the first refusal, and the
+    second attempt then fails as a lost connection, which hides that the password was refused.
+    """
+    server.ehlo_or_helo_if_needed()
+    if "PLAIN" in server.esmtp_features.get("auth", "").split():
+        server.esmtp_features["auth"] = "PLAIN"
+    try:
+        server.login(settings.user, settings.password)
+    except smtplib.SMTPServerDisconnected:
+        raise KindleError("sign_in", "the server closed the connection during sign-in") from None
+    except UnicodeError:                    # its own words would quote part of the password
+        raise KindleError("sign_in", "the address or the password holds a character that cannot "
+                                     "be sent; type it again") from None
 
 
 def _explain(exc: Exception, settings: Settings) -> KindleError:

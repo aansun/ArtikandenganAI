@@ -153,8 +153,8 @@ come from the environment, never the command line: `KINDLE_TO`, `KINDLE_FROM`, `
 `KINDLE_SMTP_PORT`, `KINDLE_SMTP_USER` (when it differs from the sender), `KINDLE_SMTP_PASSWORD`.
 In the app they are filled in under Settings and the password is kept in the Keychain.
 
-A volume is not sent without a title, an author and a language, when the file is damaged or when it
-is over 50 MB. What was sent is kept in `<book>/kindle.json` (volume, file fingerprint, title,
+A volume is not sent without a title, an author and a language ("Unknown" counts as none), when the
+author holds an e-mail address, when the file is damaged or when it is over 50 MB. What was sent is kept in `<book>/kindle.json` (volume, file fingerprint, title,
 time; no address): the same file is skipped unless `--resend`, and a changed file shows as changed.
 "Sent" means your mail server took the message; Amazon delivers it only when the sender is on its
 approved list.

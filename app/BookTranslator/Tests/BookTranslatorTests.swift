@@ -317,6 +317,7 @@ final class QueueTests: XCTestCase {
         let m = model()
         let json = #"{"agy":{"recommended":"flash-high","choices":["flash-high","flash-medium"]}}"#
         m.modelChoices = try JSONDecoder().decode([String: ModelChoices].self, from: Data(json.utf8))
+        m.engineModels = [:]                    // not the choices made on this computer
         m.setModel("agy", "flash-medium")
         XCTAssertEqual(m.engineModels, ["agy": "flash-medium"])
         let arguments = try XCTUnwrap(m.env.makeProcess(["--detect"]).arguments)
@@ -346,6 +347,8 @@ final class QueueTests: XCTestCase {
         XCTAssertEqual(env["KINDLE_SMTP_PASSWORD"], "xxxx xxxx")
         k.server = .gmail
         XCTAssertEqual(k.environment(password: "xxxx xxxx")["KINDLE_SMTP_PASSWORD"], "xxxxxxxx")
+        // a password copied from a web page can hold non-breaking spaces
+        XCTAssertEqual(k.environment(password: "xxxx\u{00A0}xxxx")["KINDLE_SMTP_PASSWORD"], "xxxxxxxx")
         let suite = "kindle-test-\(UUID().uuidString)"
         let store = UserDefaults(suiteName: suite)!
         defer { store.removePersistentDomain(forName: suite) }
@@ -380,7 +383,7 @@ final class QueueTests: XCTestCase {
         for code in ["settings", "kindle_address", "sender_address", "sign_in", "sender_refused", "recipient_refused", "message_refused", "encryption", "connection", "book"] {
             XCTAssertNotNil(Loc.table["kindle.error.\(code)"], code)
         }
-        for problem in ["unreadable", "too_large", "title", "author", "language", "language_differs", "title_like_file_name", "damaged_characters", "cover", "same_title"] {
+        for problem in ["unreadable", "too_large", "title", "author", "author_email", "language", "language_differs", "title_like_file_name", "damaged_characters", "cover", "same_title"] {
             XCTAssertNotNil(Loc.table["kindle.problem.\(problem)"], problem)
         }
     }

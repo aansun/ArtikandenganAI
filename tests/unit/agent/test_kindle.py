@@ -1,6 +1,8 @@
 """Sending a finished book to a Kindle, against a stand-in mail server (no network)."""
 import json
 import smtplib
+import socket
+import threading
 import zipfile
 
 import pytest
@@ -19,16 +21,22 @@ class FakeServer:
     sent: list = []
     refuse: dict = {}
 
-    def __init__(self, host, port, timeout=None, context=None):
+    def __init__(self, host, port, local_hostname=None, timeout=None, context=None):
         FakeServer.log.append(("connect", host, port))
+        FakeServer.greeting = local_hostname
+        self.esmtp_features = {"auth": " LOGIN PLAIN XOAUTH2"}
 
     def starttls(self, context=None):
         FakeServer.log.append(("starttls", context is not None))
         if "tls" in FakeServer.refuse:
             raise smtplib.SMTPNotSupportedError("STARTTLS extension not supported by server.")
 
+    def ehlo_or_helo_if_needed(self):
+        pass
+
     def login(self, user, password):
         FakeServer.log.append(("login", user))
+        assert self.esmtp_features["auth"] == "PLAIN"
         if "login" in FakeServer.refuse:
             raise smtplib.SMTPAuthenticationError(535, f"bad password {password}".encode())
 
@@ -114,6 +122,30 @@ def test_a_file_without_its_details_is_not_sent(book, capsys, mail):
     assert "author" in found["files"][0]["problems"] and found["files"][0]["blocked"]
 
 
+@pytest.mark.parametrize("field,value,problem", [
+    ("title", "Unknown", "title"),
+    ("title", "Tidak Diketahui", "title"),
+    ("creator", "Unknown", "author"),
+    ("creator", "someone@example.org", "author_email"),
+    ("creator", "Jane Author <jane@example.org>", "author_email"),
+])
+def test_placeholder_details_and_an_address_as_author_are_not_sent(book, capsys, mail, field, value, problem):
+    for output in sorted((book / "translation").glob("*.epub")):
+        edit_field(output, field, value)
+    code, found = run(capsys, "--kindle-check", str(book))
+    assert all(problem in f["problems"] and f["blocked"] for f in found["files"])
+    code, answer = run(capsys, "--kindle-send", str(book))
+    assert code == 1 and {r["result"] for r in answer["results"]} == {"blocked"}
+    assert mail.sent == [] and mail.log == []
+
+
+def test_an_at_sign_in_a_name_is_not_an_address(book, capsys):
+    for output in sorted((book / "translation").glob("*.epub")):
+        edit_field(output, "creator", "J@ne Author")
+    code, found = run(capsys, "--kindle-check", str(book))
+    assert found["files"][0]["problems"] == [] and not found["files"][0]["blocked"]
+
+
 def test_one_refused_volume_does_not_mark_it_sent(book, capsys, mail):
     mail.refuse = {"Fake Saga - Volume 1": True}
     code, answer = run(capsys, "--kindle-send", str(book))
@@ -139,6 +171,55 @@ def test_the_settings_are_tested_without_sending(env, capsys, mail, monkeypatch)
     assert run(capsys, "--kindle-test")[1]["error"] == "kindle_address"
     monkeypatch.setenv("KINDLE_SMTP_PASSWORD", "")
     assert run(capsys, "--kindle-test")[1]["error"] == "settings"
+
+
+def _gmail_like(on_auth):
+    """A mail server on this computer: answers the first sign-in and hangs up on a second one."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    seen = []
+
+    def serve():
+        connection, _ = listener.accept()
+        with connection, connection.makefile("rb") as lines:
+            connection.sendall(b"220 ready\r\n")
+            for line in lines:
+                seen.append([line.split()[0].upper(), *line.split()[1:2]])
+                if seen[-1][0] == b"EHLO":
+                    connection.sendall(b"250-hello\r\n250 AUTH LOGIN PLAIN XOAUTH2\r\n")
+                elif seen[-1][0] == b"AUTH" and on_auth and len([s for s in seen if s[0] == b"AUTH"]) == 1:
+                    connection.sendall(on_auth)
+                else:
+                    break
+        listener.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return listener.getsockname()[1], seen
+
+
+@pytest.mark.parametrize("reply,detail", [
+    (b"535 5.7.8 Username and Password not accepted\r\n", "535 5.7.8 Username and Password not accepted"),
+    (None, "the server closed the connection during sign-in"),
+])
+def test_a_refused_sign_in_is_not_told_as_a_lost_connection(monkeypatch, reply, detail):
+    port, seen = _gmail_like(reply)
+    monkeypatch.setattr(smtplib.SMTP, "starttls", lambda self, context=None: (220, b""))
+    settings = kindle.Settings("reader@kindle.com", "me@example.org", "127.0.0.1", port,
+                               "me@example.org", PASSWORD)
+    with pytest.raises(kindle.KindleError) as refused:
+        kindle.connect(settings)
+    assert (refused.value.code, refused.value.detail) == ("sign_in", detail)
+    assert seen[0] == [b"EHLO", b"[127.0.0.1]"]
+    assert [s for s in seen if s[0] == b"AUTH"] == [[b"AUTH", b"PLAIN"]]
+
+
+def test_a_character_the_sign_in_cannot_carry_is_not_quoted(monkeypatch):
+    port, _seen = _gmail_like(b"535 no\r\n")
+    monkeypatch.setattr(smtplib.SMTP, "starttls", lambda self, context=None: (220, b""))
+    settings = kindle.Settings("reader@kindle.com", "me@example.org", "127.0.0.1", port,
+                               "me@example.org", "xxxx\u00a0xxxx")
+    with pytest.raises(kindle.KindleError) as refused:
+        kindle.connect(settings)
+    assert refused.value.code == "sign_in" and "xa0" not in refused.value.detail
 
 
 def test_two_volumes_under_one_title_and_a_file_name_title_are_told(book, capsys):

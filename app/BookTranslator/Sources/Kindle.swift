@@ -46,7 +46,8 @@ struct KindleSettings: Equatable {
         ["KINDLE_TO": to.trimmed, "KINDLE_FROM": from.trimmed, "KINDLE_SMTP_HOST": host, "KINDLE_SMTP_PORT": port,
          "KINDLE_SMTP_USER": server == .other ? user.trimmed : "",
          // an app password is shown in groups of four; the spaces are not part of it
-         "KINDLE_SMTP_PASSWORD": server == .gmail ? password.replacingOccurrences(of: " ", with: "") : password]
+         "KINDLE_SMTP_PASSWORD": server == .gmail ? password.components(separatedBy: .whitespacesAndNewlines).joined()
+                                                  : password]
     }
 
     static func load(_ defaults: UserDefaults = .standard) -> KindleSettings {
@@ -81,7 +82,7 @@ struct KindleFile: Codable, Identifiable, Equatable {
     var blocked: Bool
     var id: Int { volume }
     /// The problems that stop a file from being sent (the same list the engine holds).
-    static let blockingProblems = ["unreadable", "too_large", "title", "author", "language"]
+    static let blockingProblems = ["unreadable", "too_large", "title", "author", "author_email", "language"]
 }
 
 struct KindleResult: Codable, Equatable {
