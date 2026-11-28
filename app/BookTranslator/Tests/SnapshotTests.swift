@@ -1,12 +1,14 @@
 import XCTest
 import SwiftUI
+import CryptoKit
 @testable import BookTranslator
 
 /// Renders the screens to PNG files for a visual check. Runs only with BT_SNAPSHOT_DIR set.
 @MainActor
 final class SnapshotTests: XCTestCase {
     /// The screens are rendered in the app's own defaults: put back every setting they change.
-    private static let touchedKeys = ["appLanguage", "appearanceMode", "libraryLayout", "queuePaused", "targetLanguage"]
+    private static let touchedKeys = ["appLanguage", "appearanceMode", "libraryLayout", "queuePaused", "targetLanguage",
+                                      "kindle", "kindlePasswordStored", "xteink"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -223,13 +225,95 @@ final class SnapshotTests: XCTestCase {
         try capture(env(ReviewSheet(book: moon), m), to: out, name: "review", size: CGSize(width: 960, height: 620), titled: false)
         try capture(env(RootView(initialStage: .process), m), to: out, name: "progress", size: CGSize(width: 960, height: 600))
         try capture(env(RootView(initialStage: .library), m), to: out, name: "library", size: CGSize(width: 1180, height: 700))
+        try captureSampleBook(to: out)
+    }
+
+    /// The book page, with a book made here, and the settings of the e-ink reader.
+    private func captureSampleBook(to out: URL) throws {
+        let kindleIcon = OfficialIcons.kindle
+        OfficialIcons.kindle = nil                  // another company's logo stays out of the published picture
+        defer { OfficialIcons.kindle = kindleIcon }
+        // <repository>, four levels above this file: its engine answers what was sent
+        let repo = (0..<4).reduce(URL(fileURLWithPath: #filePath)) { url, _ in url.deletingLastPathComponent() }
+        let books = FileManager.default.temporaryDirectory.appendingPathComponent("bt-readme-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: books) }
+        let folder = try sampleBook(in: books)
+        let m = AppModel(env: BackendEnvironment(root: repo, booksDir: books), deferStartup: true)
+        m.kindle = KindleSettings(to: "reader@kindle.com", from: "me@example.org")
+        m.kindlePasswordStored = true
+        m.xteink = XteinkSettings()
+        let book = try XCTUnwrap(LibraryStore.read(folder: folder))
+        m.library.books = [book]
+        m.library.frozen = true
+        m.library.covers[book.folder] = EpubReader.cover(URL(fileURLWithPath: book.volumes[0].output))
+        try capture(env(BookDetailView(book: book, onBack: {}), m), to: out, name: "book", size: CGSize(width: 1060, height: 660),
+                    titled: false, wait: 10)
+        try capture(env(SettingsView(height: 520, fixedTab: .xteink), m), to: out, name: "settings",
+                    size: CGSize(width: 700, height: 520), titled: false)
+    }
+
+    /// A finished book of a public-domain novel, with sample details and a drawn cover.
+    private func sampleBook(in books: URL) throws -> URL {
+        let folder = books.appendingPathComponent("A_Study_in_Scarlet")
+        let source = books.appendingPathComponent("source")
+        for directory in [folder.appendingPathComponent("translation"), source.appendingPathComponent("META-INF"),
+                          source.appendingPathComponent("OEBPS")] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let cover = NSImage(size: NSSize(width: 480, height: 700), flipped: true) { area in
+            NSGradient(colors: [NSColor(hex: 0x8A2F3A), NSColor(hex: 0x431219)])?.draw(in: area, angle: 90)
+            let words: [NSAttributedString.Key: Any] = [.font: NSFont(name: "Georgia-Bold", size: 56) ?? .boldSystemFont(ofSize: 56),
+                                                        .foregroundColor: NSColor.white]
+            ("A Study\nin Scarlet" as NSString).draw(in: area.insetBy(dx: 40, dy: 90), withAttributes: words)
+            return true
+        }
+        let bitmap = try XCTUnwrap(cover.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+        try XCTUnwrap(bitmap.representation(using: .jpeg, properties: [:])).write(to: source.appendingPathComponent("OEBPS/cover.jpg"))
+        let files = [
+            "mimetype": "application/epub+zip",
+            "META-INF/container.xml": #"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#,
+            "OEBPS/content.opf": """
+            <?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+            <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:isbn:9780000000002</dc:identifier>
+            <dc:title>A Study in Scarlet</dc:title><dc:creator>Arthur Conan Doyle</dc:creator><dc:language>id</dc:language>
+            <dc:publisher>Sample Press</dc:publisher><dc:date>1887-11-01</dc:date><dc:subject>Mystery</dc:subject>
+            <dc:subject>Detective</dc:subject><dc:source>A Study in Scarlet (English)</dc:source>
+            <dc:description>Dr. Watson bertemu Sherlock Holmes, dan keduanya menyelidiki sebuah kematian di rumah kosong di London.</dc:description>
+            <meta name="cover" content="cover"/><meta name="calibre:series" content="Sherlock Holmes"/>
+            <meta name="calibre:series_index" content="1"/></metadata>
+            <manifest><item id="cover" href="cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+            <item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest>
+            <spine><itemref idref="one"/></spine></package>
+            """,
+            "OEBPS/one.xhtml": #"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>1</title></head><body><p>Contoh.</p></body></html>"#,
+        ]
+        for (name, text) in files { try text.write(to: source.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        let epub = folder.appendingPathComponent("translation/A Study in Scarlet (Indonesian).epub")
+        for arguments in [["-X", "-0", epub.path, "mimetype"], ["-X", "-r", epub.path, "META-INF", "OEBPS"]] {
+            let zip = Process()
+            zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+            zip.arguments = ["-q"] + arguments
+            zip.currentDirectoryURL = source
+            try zip.run()
+            zip.waitUntilExit()
+            XCTAssertEqual(zip.terminationStatus, 0)
+        }
+        let record = #"{"title":"A Study in Scarlet","title_translated":"A Study in Scarlet","source_language":"English","target_language":"Indonesian","is_fiction":true,"updated_at":"2026-11-24T13:41:21Z","volumes":[{"index":1,"label":"A Study in Scarlet","output":"\#(epub.path)","status":"completed"}]}"#
+        try record.write(to: folder.appendingPathComponent("book.json"), atomically: true, encoding: .utf8)
+        let checks = ["file", "pages", "length", "links", "metadata"].map { #"{"id":"\#($0)","level":"ok","count":0,"items":[]}"# }
+        try #"{"overall":"ok","volumes":[{"index":1,"overall":"ok","checks":[\#(checks.joined(separator: ","))]}]}"#
+            .write(to: folder.appendingPathComponent("check.json"), atomically: true, encoding: .utf8)
+        let digest = SHA256.hash(data: try Data(contentsOf: epub)).map { String(format: "%02x", $0) }.joined()
+        try #"{"sent":[{"volume":1,"sha256":"\#(digest)","at":"2026-11-24T14:00:00Z"}]}"#
+            .write(to: folder.appendingPathComponent("kindle.json"), atomically: true, encoding: .utf8)
+        return folder
     }
 
     /// A picture of the window as the window server draws it (corners, shadows and strokes as on screen).
     /// `CGWindowListCreateImage` is looked up by name because newer SDKs no longer declare it; a process may
     /// still picture its own windows without the screen-recording permission.
     private func capture<V: View>(_ view: V, to dir: URL, name: String, size: CGSize = CGSize(width: 1180, height: 700),
-                                  titled: Bool = true) throws {
+                                  titled: Bool = true, wait: TimeInterval = 1.5) throws {
         let style: NSWindow.StyleMask = titled ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView] : [.borderless]
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -238,7 +322,7 @@ final class SnapshotTests: XCTestCase {
         window.setContentSize(size)
         window.orderBack(nil)
         defer { window.close() }
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        RunLoop.current.run(until: Date().addingTimeInterval(wait))
         typealias Grab = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         let symbol = try XCTUnwrap(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage"))
         let onlyThisWindow: UInt32 = 1 << 3, withoutShadowAtFullSize: UInt32 = 1 << 0 | 1 << 3

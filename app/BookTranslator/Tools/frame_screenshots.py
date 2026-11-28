@@ -16,7 +16,7 @@ from PIL import Image, ImageCms, ImageDraw
 WIDTH = 1600
 OUTLINE = (205, 193, 180)
 #: Rows of the resized picture where the window is empty, as (first, last) to cut out.
-EMPTY_ROWS = {"add-books": (710, 990), "progress": (773, None)}
+EMPTY_ROWS = {"add-books": (710, 990), "progress": (773, None), "book": (740, 966)}
 
 
 def to_srgb(image):
@@ -63,7 +63,7 @@ def main(arguments):
         print("usage: frame_screenshots.py RENDERED_FOLDER OUTPUT_FOLDER", file=sys.stderr)
         return 2
     source, target = arguments
-    for name in ("add-books", "review", "progress", "library"):
+    for name in ("add-books", "review", "progress", "library", "book", "settings"):
         picture = frame(Image.open(f"{source}/{name}.png"), name)
         picture.save(f"{target}/{name}.png", optimize=True)
         print(f"{name}.png {picture.width}x{picture.height}")

@@ -201,8 +201,8 @@ struct ToolLabel: View {
 enum OfficialIcons {
     static let books = icon(["com.apple.iBooksX"])
     static let finder = icon(["com.apple.finder"])
-    /// Amazon's app, when the user has it.
-    static let kindle = icon(["com.amazon.Lassen", "com.amazon.Kindle"])
+    /// Amazon's app, when the user has it. A variable so that published screenshots can leave it out.
+    static var kindle = icon(["com.amazon.Lassen", "com.amazon.Kindle"])
 
     static func icon(_ identifiers: [String]) -> NSImage? {
         identifiers.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first

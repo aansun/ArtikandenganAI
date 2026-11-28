@@ -74,6 +74,23 @@ Finished books with their covers. A book that needs a look is marked **Check**.
   <img src="docs/images/nnai/library.png" alt="The Library: nine finished books grouped into fiction and non-fiction" width="840">
 </p>
 
+### 5. Read it and send it
+
+A book's page opens it in Apple Books, sends it to a Kindle or an Xteink reader, and keeps its metadata
+and final check at hand.
+
+<p align="center">
+  <img src="docs/images/nnai/book.png" alt="A book's page: open, send and metadata actions on the left, the cover and metadata on the right" width="840">
+</p>
+
+### 6. Settings by kind
+
+Each kind of setting has its own tab; here, the one for an Xteink reader.
+
+<p align="center">
+  <img src="docs/images/nnai/settings.png" alt="Settings, Xteink tab: reader address, folder, preparation for e-ink, connection test and log" width="620">
+</p>
+
 ## How it differs from the main project
 
 The main project (see below) is a general translator: a web and desktop app
