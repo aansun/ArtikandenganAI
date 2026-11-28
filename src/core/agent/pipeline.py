@@ -119,6 +119,7 @@ class AgentOptions:
     style: str = "auto"                        # auto | formal | santai | sastra
     polish_only: bool = False                  # the upload is already translated: polish and check it
     keep_model: bool = False                   # auto mode: wait for the main engine, never switch
+    engine_models: Dict[str, str] = field(default_factory=dict)   # engine -> the user's own model
 
 
 @dataclass
@@ -273,7 +274,7 @@ class BookAgent:
         if not self._engines_ready:
             self.engines = engines_mod.detect_engines(
                 self.opt.engines, cache_path=self.root / ".engines.json",
-                refresh=self.opt.refresh_engines)
+                refresh=self.opt.refresh_engines, chosen=self.opt.engine_models)
             self._engines_ready = True
         return self.engines
 
@@ -910,11 +911,19 @@ class BookAgent:
                 return stop
         first = next((e.name for e in self.engines if e.active), "")
         own = placing and first == self.state.lock.get("engine")    # the book's engine answers first
-        override = self.opt.model or (self.state.lock.get("model") if own else None)
+        picked = first in self.opt.engine_models
+        # a started book keeps its model when only the quality setting changes; the user's own
+        # choice of model, made or taken back, comes first
+        keeps = own and not picked and not self.state.lock.get("picked")
+        override = self.opt.model or (self.state.lock.get("model") if keeps else None)
         choice = choose_model(profile.genre, profile=self.opt.profile, override=override,
                               provider=self.opt.translate_provider, engines=self.engines)
         if own:                 # its model stays too, whatever the quality setting says later
             self.state.lock["model"] = choice.model
+            if picked:
+                self.state.lock["picked"] = "yes"
+            else:
+                self.state.lock.pop("picked", None)
         self.state.provider = self.opt.translate_provider
         self.state.model = choice.model
         self.state.backup_model = choice.backup_model or ""

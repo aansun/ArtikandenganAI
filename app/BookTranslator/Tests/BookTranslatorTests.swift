@@ -104,7 +104,7 @@ final class ModelDecodingTests: XCTestCase {
 final class QueueTests: XCTestCase {
     /// These tests run in the app's own defaults: put back every setting they change.
     private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode", "verifiedBooks",
-                                      "keepModel"]
+                                      "keepModel", "engineModels", "engineOrder"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -289,6 +289,40 @@ final class QueueTests: XCTestCase {
         XCTAssertTrue(report("toc", "warn").canRepair)
         XCTAssertFalse(report("toc", "ok").canRepair)
         XCTAssertFalse(report("links", "warn").canRepair)
+    }
+
+    func testEnginesMoveUpAndDownAndKeepTheirRoles() {
+        let m = model()
+        func engine(_ name: String, _ active: Bool) -> EngineInfo {
+            EngineInfo(name: name, label: name, active: active, reason: "", role: "")
+        }
+        m.engines = [engine("claude", true), engine("agy", false), engine("codex", true)].arranged(["claude", "agy", "codex"])
+        XCTAssertEqual(m.engines.map(\.role), ["main", "", "backup"])
+        m.moveEngine("codex", by: -1)
+        m.moveEngine("codex", by: -1)
+        XCTAssertEqual(m.engines.map(\.name), ["codex", "claude", "agy"])
+        XCTAssertEqual(m.engines.map(\.role), ["main", "backup", ""])
+        XCTAssertEqual(m.engineOrder, ["codex", "claude", "agy"])
+        m.moveEngine("codex", by: -1)                          // already first
+        m.moveEngine("agy", by: 1)                             // already last
+        XCTAssertEqual(m.engines.map(\.name), ["codex", "claude", "agy"])
+        m.moveEngine("claude", before: "codex")
+        XCTAssertEqual(m.engines.first?.name, "claude")
+    }
+
+    func testAChosenModelIsPassedToTheEngineAndTheRecommendedOneIsNoChoice() throws {
+        let m = model()
+        let json = #"{"agy":{"recommended":"flash-high","choices":["flash-high","flash-medium"]}}"#
+        m.modelChoices = try JSONDecoder().decode([String: ModelChoices].self, from: Data(json.utf8))
+        m.setModel("agy", "flash-medium")
+        XCTAssertEqual(m.engineModels, ["agy": "flash-medium"])
+        let arguments = try XCTUnwrap(m.env.makeProcess(["--detect"]).arguments)
+        let at = try XCTUnwrap(arguments.firstIndex(of: "--engine-model"))
+        XCTAssertEqual(arguments[at + 1], "agy=flash-medium")
+        m.setModel("agy", "flash-high")
+        XCTAssertTrue(m.engineModels.isEmpty)
+        XCTAssertFalse(m.env.makeProcess(["--detect"]).arguments?.contains("--engine-model") ?? true)
+        XCTAssertEqual(EngineInfo.display("gpt-6-luna@medium"), "gpt-6-luna (medium)")
     }
 
     func testTheReadyCardWordingFollowsItsBooks() {

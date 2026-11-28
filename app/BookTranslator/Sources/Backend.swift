@@ -5,6 +5,8 @@ struct BackendEnvironment {
     var root: URL        // the folder that holds translate_book.py (the app's own copy, or a developer's repo)
     var booksDir: URL
     var engineOrder: [String] = []
+    /// The user's own model per engine; an engine not named here uses the recommended one.
+    var engineModels: [String: String] = [:]
     /// The Python to run (the app's own environment); nil means the repo's `.venv`, else the system one.
     var pythonOverride: URL?
     /// Where processes run. The built-in engine lives inside the app bundle, which must stay untouched.
@@ -69,8 +71,9 @@ struct BackendEnvironment {
         process.currentDirectoryURL = workDir ?? root
         let order = EngineInfo.completeOrder(engineOrder)
         let engines = order.isEmpty ? [] : ["--engines", order.joined(separator: ",")]
+        let models = engineModels.sorted { $0.key < $1.key }.flatMap { ["--engine-model", "\($0.key)=\($0.value)"] }
         let log = Self.keepsLog ? [] : ["--no-log"]
-        process.arguments = [script.path, "--books-dir", booksDir.path] + engines + log + arguments
+        process.arguments = [script.path, "--books-dir", booksDir.path] + engines + models + log + arguments
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = Self.cachedPath
         env["PYTHONUNBUFFERED"] = "1"
@@ -169,6 +172,11 @@ enum BackendClient {
     static func detect(_ env: BackendEnvironment, refresh: Bool = false) async throws -> [EngineInfo] {
         let data = try await run(env, ["--detect"] + (refresh ? ["--refresh-engines"] : []))
         return try JSONDecoder().decode([EngineInfo].self, from: lastJSON(data))
+    }
+
+    static func modelChoices(_ env: BackendEnvironment) async throws -> [String: ModelChoices] {
+        let data = try await run(env, ["--list-models"])
+        return try JSONDecoder().decode([String: ModelChoices].self, from: lastJSON(data))
     }
 
     static func inspect(_ env: BackendEnvironment, file: URL, target: String = "Indonesian") async throws -> InspectResult {

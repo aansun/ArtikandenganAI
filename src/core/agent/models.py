@@ -1,8 +1,9 @@
 """
 The models each engine may translate with.
 
-The app, not the user and not the CLI's own settings, decides the model: an engine is only
-usable with a model of this list. ``tested`` marks a model that has translated real text
+The app recommends the model, whatever the CLI's own settings say: an engine is only usable
+when it has a model on this list. The user may pick another model of such an engine (see
+``allowed_choice``); the recommendation stays shown beside it. ``tested`` marks a model that has translated real text
 through that engine here; an untested one is a candidate and is not used until it has been
 checked (set ``AGENT_ALLOW_UNTESTED_MODELS=1`` to try the candidates).
 
@@ -24,6 +25,15 @@ ALLOW_UNTESTED_ENV = "AGENT_ALLOW_UNTESTED_MODELS"
 
 #: Never used, on any engine.
 BANNED = ("opus", "fable")
+#: Not offered as the user's own choice either: free and preview models may train on what they
+#: are sent, and an orchestrator is an agent of its own, not a translator.
+NOT_OFFERED = ("free", "preview", "orchestrator")
+
+
+def allowed_choice(model: str) -> bool:
+    """May the user pick this model?"""
+    name = (model or "").lower()
+    return bool(name) and not any(word in name for word in BANNED + NOT_OFFERED)
 
 
 @dataclass(frozen=True)

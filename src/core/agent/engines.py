@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -62,7 +63,69 @@ class Engine:
     models: Dict[str, str] = field(default_factory=dict)   # tier -> model, when active
 
 
-async def _probe(name: str) -> Engine:
+#: The reasoning efforts offered for a Codex model.
+CODEX_EFFORTS = ("low", "medium", "high")
+
+
+async def _output(*command: str) -> str:
+    """What a quick command prints ('' when it fails or takes too long)."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL)
+        out, _err = await asyncio.wait_for(process.communicate(), timeout=PROBE_TIMEOUT)
+    except (OSError, asyncio.TimeoutError):
+        return ""
+    return out.decode("utf-8", "replace") if process.returncode == 0 else ""
+
+
+def _family(model: str) -> str:
+    """The model without its strength: "gemini-3.8-flash-high" and "...-low" are one family."""
+    return re.sub(r"[-@](low|medium|high|xhigh)$", "", model)
+
+
+async def _offered_models(name: str, path: str) -> List[str]:
+    """The models of an installed engine the user may choose from."""
+    found: List[str] = []
+    if name == "claude":
+        found = ["haiku", "sonnet"]
+    elif name == "agy":         # one model per line: "<id><TAB><name>"
+        found = [line.split("\t")[0].strip() for line in (await _output(path, "models")).splitlines()
+                 if "\t" in line]
+    elif name == "codex":
+        try:
+            listed = json.loads(await _output(path, "debug", "models"))["models"]
+            for model in listed:
+                if model.get("visibility") != "list":
+                    continue
+                efforts = {e.get("effort") for e in model.get("supported_reasoning_levels", [])}
+                found += [f"{model['slug']}@{effort}" for effort in CODEX_EFFORTS if effort in efforts]
+        except (ValueError, KeyError, TypeError, AttributeError):
+            pass
+    return [m for m in found if model_list.allowed_choice(m)]
+
+
+def model_choices(order: Optional[Sequence[str]] = None) -> Dict[str, dict]:
+    """``{engine: {"recommended", "choices"}}`` of the installed engines that have a
+    recommended model. Only those can be used, with it or with another of their models."""
+    async def one(name: str):
+        path = _META[name][2]() or ""
+        recommended = model_list.first_choice(name, "sonnet")
+        if not path or not recommended:
+            return name, None
+        offered = await _offered_models(name, path)
+        # the recommendation first, then the other strengths of the same model, then the rest
+        family = _family(recommended)
+        others = sorted((m for m in offered if m != recommended), key=lambda m: _family(m) != family)
+        return name, {"recommended": recommended, "choices": [recommended] + others}
+
+    async def run():
+        return await asyncio.gather(*(one(n) for n in (order or DEFAULT_ORDER) if n in _META))
+
+    return {name: entry for name, entry in asyncio.run(run()) if entry}
+
+
+async def _probe(name: str, chosen: str = "") -> Engine:
     label, provider_type, finder, lister = _META[name]
     path = finder() or ""
     if not path:
@@ -74,14 +137,18 @@ async def _probe(name: str) -> Engine:
     strong, light = model_list.candidates(name, "sonnet"), model_list.candidates(name, "haiku")
     if not strong:
         return inactive(f"{NO_MODEL} yet: this engine has not been checked for translation quality")
-    if lister:
+    if chosen:                          # the user's model, for every tier; no silent stand-in
+        if not model_list.allowed_choice(chosen):
+            return inactive(f"the chosen model {chosen} is not allowed")
+        strong = light = [chosen]
+    if lister and not chosen:
         offered: Optional[Set[str]] = await lister(path)
         if offered is not None:
             strong = [m for m in strong if m in offered]
             light = [m for m in light if m in offered]
         if not strong:
             return inactive(f"{NO_MODEL} is available with this sign-in")
-    reason = f"{NO_MODEL} answered"
+    reason = f"the chosen model {chosen} did not answer" if chosen else f"{NO_MODEL} answered"
     for model in strong:          # the strong tier carries every novel: it is the one that must answer
         provider = create_llm_provider(ProviderConfig(provider=provider_type, model=model))
         request = LLMRequest(prompt=PROBE_PROMPT, system_prompt=None, model=model,
@@ -134,9 +201,10 @@ def _read_cache(path: Optional[Path]) -> Optional[Dict[str, dict]]:
 
 
 def detect_engines(order: Optional[Sequence[str]] = None, *, cache_path: Optional[Path] = None,
-                   refresh: bool = False) -> List[Engine]:
+                   refresh: bool = False, chosen: Optional[Dict[str, str]] = None) -> List[Engine]:
     """Every engine of ``order`` with its state; the active ones get the role main or backup."""
     names = [n for n in (order or DEFAULT_ORDER) if n in _META]
+    chosen = chosen or {}
     cached = None if refresh else _read_cache(cache_path)
     found: Dict[str, Engine] = {}
     if cached:
@@ -144,14 +212,18 @@ def detect_engines(order: Optional[Sequence[str]] = None, *, cache_path: Optiona
             entry = cached.get(name)
             if not entry or (entry.get("active") and not entry.get("models")):
                 continue        # a cache written before the models were recorded
-            # a model taken off the list (or an untested one no longer allowed) is not reused
-            allowed = {m for tier in ("haiku", "sonnet") for m in model_list.candidates(name, tier)}
+            # a model taken off the list (or an untested one no longer allowed) is not reused,
+            # nor is a result for another choice of model
+            allowed = ({chosen[name]} if chosen.get(name) else
+                       {m for tier in ("haiku", "sonnet") for m in model_list.candidates(name, tier)})
+            if chosen.get(name) and not entry.get("active"):
+                continue
             if set((entry.get("models") or {}).values()) <= allowed:
                 found[name] = Engine(**entry)
     missing = [n for n in names if n not in found]
     if missing:
         async def run():
-            return await asyncio.gather(*(_probe(n) for n in missing))
+            return await asyncio.gather(*(_probe(n, chosen.get(n, "")) for n in missing))
         for engine in asyncio.run(run()):
             found[engine.name] = engine
         activity.record("engines", engines=[

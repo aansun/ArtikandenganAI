@@ -105,6 +105,14 @@ final class AppModel {
             env.engineOrder = engineOrder
         }
     }
+    var engineModels: [String: String] = (UserDefaults.standard.dictionary(forKey: "engineModels") as? [String: String]) ?? [:] {
+        didSet {
+            UserDefaults.standard.set(engineModels, forKey: "engineModels")
+            env.engineModels = engineModels
+        }
+    }
+    /// What each engine offers, asked when Settings opens.
+    var modelChoices: [String: ModelChoices] = [:]
     var targetLanguage: String = UserDefaults.standard.string(forKey: "targetLanguage") ?? "Indonesian" {
         didSet { UserDefaults.standard.set(targetLanguage, forKey: "targetLanguage") }
     }
@@ -128,6 +136,7 @@ final class AppModel {
     init(env: BackendEnvironment = .load(), deferStartup: Bool = false) {
         self.env = env
         self.env.engineOrder = UserDefaults.standard.stringArray(forKey: "engineOrder") ?? []
+        self.env.engineModels = (UserDefaults.standard.dictionary(forKey: "engineModels") as? [String: String]) ?? [:]
         if env.isBuiltIn, let engine = BackendEnvironment.bundledEngine {
             engineSetup.check(engine: engine)
         }
@@ -286,8 +295,10 @@ final class AppModel {
         let env = self.env
         Task {
             let found = try? await BackendClient.detect(env, refresh: force || reorder)
-            self.engines = found ?? []
+            let order = self.env.engineOrder.isEmpty ? (found ?? []).map(\.name) : EngineInfo.completeOrder(self.env.engineOrder)
+            self.engines = (found ?? []).arranged(order)
             self.enginesLoading = false
+            if self.env.engineModels != env.engineModels { self.refreshEngines(force: true) }
         }
     }
 
@@ -887,8 +898,38 @@ final class AppModel {
         guard name != target, let from = order.firstIndex(of: name) else { return }
         order.remove(at: from)
         order.insert(name, at: order.firstIndex(of: target) ?? order.count)
+        arrangeEngines(order)
+    }
+
+    /// One step up (-1) or down (1).
+    func moveEngine(_ name: String, by offset: Int) {
+        var order = engines.map(\.name)
+        guard let from = order.firstIndex(of: name), order.indices.contains(from + offset) else { return }
+        order.swapAt(from, from + offset)
+        arrangeEngines(order)
+    }
+
+    /// A new order needs no new test of the engines: they are the same, in another line.
+    private func arrangeEngines(_ order: [String]) {
         engineOrder = order
-        refreshEngines(force: false, reorder: true)
+        engines = engines.arranged(order)
+    }
+
+    func loadModelChoices() {
+        guard env.isReady else { return }
+        let env = self.env
+        Task {
+            if let found = try? await BackendClient.modelChoices(env) { self.modelChoices = found }
+        }
+    }
+
+    /// The model an engine uses from now on; the recommended one is simply "no choice of my own".
+    func setModel(_ engine: String, _ model: String) {
+        var chosen = engineModels
+        chosen[engine] = model == modelChoices[engine]?.recommended ? nil : model
+        guard chosen != engineModels else { return }
+        engineModels = chosen
+        refreshEngines(force: true)
     }
 
     // MARK: - Checking a finished book again

@@ -152,34 +152,6 @@ struct GripDots: View {
     }
 }
 
-/// A drop-down on a book, filled with the colour of the value it shows.
-private struct RowMenu<Value: Hashable>: View {
-    var items: [(value: Value, title: String)]
-    @Binding var selection: Value
-    var fill: Color
-    var width: CGFloat
-
-    var body: some View {
-        Menu {
-            Picker("", selection: $selection) {
-                ForEach(items.indices, id: \.self) { Text(items[$0].title).tag(items[$0].value) }
-            }
-            .pickerStyle(.inline).labelsHidden()
-        } label: {
-            HStack(spacing: 4) {
-                Text(items.first { $0.value == selection }?.title ?? "").lineLimit(1)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .heavy))
-            }
-            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.onAction)
-            .padding(.horizontal, 10).frame(width: width, height: UploadedRow.controlHeight)
-            .background(fill, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-    }
-}
-
 /// A book not yet chosen: what it is on the left, how it will be handled on the right. When the card is too
 /// narrow for one line, the controls take a line of their own, still on the right.
 private struct UploadedRow: View {
@@ -247,12 +219,12 @@ private struct UploadedRow: View {
             if book.canPolishOnly {
                 RowMenu(items: [(false, loc.t("mode.translate")), (true, loc.t("mode.polish"))],
                         selection: Binding(get: { book.polishOnly }, set: { model.setPolishOnly(book.id, $0) }),
-                        fill: book.polishOnly ? Theme.actionPolish : Theme.actionTranslate, width: 120)
+                        fill: book.polishOnly ? Theme.actionPolish : Theme.actionTranslate, width: 120, height: Self.controlHeight)
                     .help(loc.t("input.modeHelp"))
             }
             RowMenu(items: [BookKind.fiction, .nonfiction].map { ($0, loc.t($0.key)) },
                     selection: Binding(get: { book.kind }, set: { if $0 != book.kind { model.toggleKind(book.id) } }),
-                    fill: book.kind == .fiction ? Theme.actionFiction : Theme.actionNonfiction, width: 112)
+                    fill: book.kind == .fiction ? Theme.actionFiction : Theme.actionNonfiction, width: 112, height: Self.controlHeight)
                 .help(loc.t("input.kindHelp"))
             Button(loc.t("input.prepare")) { model.makeReady(book.id) }
                 .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12)).fixedSize()

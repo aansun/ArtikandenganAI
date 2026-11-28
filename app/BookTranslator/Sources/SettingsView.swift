@@ -250,19 +250,29 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10).background(Theme.sidePanel)
         }
+        .onAppear { model.loadModelChoices() }
     }
 
     private func engineRow(_ engine: EngineInfo, backupNumber: Int) -> some View {
         let (letter, color) = Self.badge[engine.name] ?? ("?", .gray)
         let waiting = !engine.active && engine.reason.lowercased().contains("quota") || engine.reason.lowercased().contains("limit")
+        let position = model.engines.firstIndex { $0.name == engine.name } ?? 0
         return HStack(spacing: 12) {
-            GripDots()
+            VStack(spacing: 4) {
+                IconButton(symbol: "chevron.up", help: loc.t("input.up"), size: 22, enabled: position > 0,
+                           fill: Theme.actionNonfiction) { model.moveEngine(engine.name, by: -1) }
+                IconButton(symbol: "chevron.down", help: loc.t("input.down"), size: 22,
+                           enabled: position < model.engines.count - 1,
+                           fill: Theme.actionNonfiction) { model.moveEngine(engine.name, by: 1) }
+            }
             Text(letter).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 30, height: 30).background(color, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 1) {
                 Text(engine.label).font(.system(size: 14, weight: .medium))
                 Text(engineStatus(engine))
                     .font(.system(size: 12)).foregroundStyle(engine.active ? Theme.muted : Theme.warnIcon).lineLimit(2)
+                    .fixedSize(horizontal: engine.active, vertical: true)      // a reason may wrap
+                modelMenu(engine)
             }
             Spacer()
             if engine.role == "main" { Pill(text: loc.t("settings.main"), bg: Theme.fictionBg, fg: Theme.accentDark, size: 12) }
@@ -272,6 +282,7 @@ struct SettingsView: View {
             else { Pill(text: loc.t("settings.inactive"), bg: Theme.neutralBg, fg: Theme.neutralText, size: 12) }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
+        .contentShape(Rectangle())
         .draggable(engine.name)
         .dropDestination(for: String.self) { names, _ in
             if let first = names.first { model.moveEngine(first, before: engine.name) }
@@ -282,8 +293,32 @@ struct SettingsView: View {
     private func engineStatus(_ engine: EngineInfo) -> String {
         if engine.lacksRecommendedModel { return loc.t("settings.noModel") }
         guard engine.active else { return engine.reason }
-        let state = engine.role == "main" ? loc.t("settings.signedIn") : loc.t("settings.readyToReplace")
-        return engine.modelName.map { "\(state) · \($0)" } ?? state
+        return engine.role == "main" ? loc.t("settings.signedIn") : loc.t("settings.readyToReplace")
+    }
+
+    /// The engine's model: the recommended one is marked, any other of its models may be chosen.
+    @ViewBuilder private func modelMenu(_ engine: EngineInfo) -> some View {
+        if let offered = model.modelChoices[engine.name] {
+            let chosen = model.engineModels[engine.name] ?? offered.recommended
+            let own = chosen != offered.recommended
+            let models = offered.choices.contains(chosen) ? offered.choices : [chosen] + offered.choices
+            HStack(spacing: 8) {
+                RowMenu(items: models.map { name in
+                            (name, name == offered.recommended
+                                ? loc.t("settings.model.recommended", EngineInfo.display(name)) : EngineInfo.display(name))
+                        },
+                        selection: Binding(get: { chosen }, set: { model.setModel(engine.name, $0) }),
+                        fill: own ? Theme.actionFiction : Theme.actionPolish, width: 260, height: 24)
+                    .disabled(model.enginesLoading)
+                if own {
+                    Text(loc.t("settings.model.untested")).font(.system(size: 11)).foregroundStyle(Theme.warnIcon).fixedSize()
+                }
+            }
+            .fixedSize()
+            .padding(.top, 4)
+        } else if let name = engine.modelName {
+            Text(name).font(.system(size: 12)).foregroundStyle(Theme.muted)
+        }
     }
 
     private func chooseFolder(_ start: URL, pick: @escaping (URL) -> Void) {

@@ -38,6 +38,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from src.core.agent import AgentOptions, BookAgent, engines as engines_mod, library, parse_volume_selection  # noqa: E402
 from src.core.agent import log_report  # noqa: E402
+from src.core.agent import models as model_list  # noqa: E402
 from src.core.llm import activity  # noqa: E402
 from src.core.agent.routing import (  # noqa: E402
     DEFAULT_TRANSLATE_PROVIDER, PROFILES, PROVIDER_AGY_CLAUDE, PROVIDER_AUTO, PROVIDER_CLAUDE,
@@ -73,6 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--engines", default=os.getenv("AGENT_ENGINES", ""),
                    help="With auto: the engines to consider and their order, e.g. codex,claude "
                         "(default: claude,codex,agy,opencode, or $AGENT_ENGINES).")
+    p.add_argument("--engine-model", action="append", default=[], metavar="ENGINE=MODEL",
+                   help="With auto: use this model for an engine instead of the recommended one "
+                        "(may be given once per engine; see --list-models). opus and fable are "
+                        "refused.")
+    p.add_argument("--list-models", action="store_true",
+                   help="Print the recommended model and the choices of each installed engine as "
+                        "JSON and exit.")
     p.add_argument("--one-engine", action="store_true",
                    help="With auto: use only the book's own engine and model; when its usage limit "
                         "is reached the run stops with exit code 3 until it can go on. Default: "
@@ -170,7 +178,22 @@ def _options(args, input_path: Path, root: Path) -> AgentOptions:
         glossary_only=args.glossary_only, refine=args.refine,
         keep_original_title=args.keep_original_title, refresh_metadata=args.refresh_metadata,
         max_tokens_per_chunk=args.chunk_tokens, parallel=args.parallel, effort=args.effort,
-        polish_only=args.polish_only, keep_model=args.one_engine)
+        polish_only=args.polish_only, keep_model=args.one_engine,
+        engine_models=_engine_models(args.engine_model))
+
+
+def _engine_models(given) -> dict:
+    """``["agy=model", ...]`` as ``{engine: model}``; raises ValueError on one that is not allowed."""
+    chosen = {}
+    for item in given:
+        engine, _, model = item.partition("=")
+        engine, model = engine.strip(), model.strip()
+        if engine not in engines_mod.DEFAULT_ORDER or not model_list.allowed_choice(model):
+            raise ValueError(f"--engine-model {item}: expected <engine>=<model>, with an engine of "
+                             f"{', '.join(engines_mod.DEFAULT_ORDER)} and a model that may be used "
+                             "(no opus, fable, free or preview model)")
+        chosen[engine] = model
+    return chosen
 
 
 def _say(message: str) -> None:
@@ -245,7 +268,8 @@ def _inspect(parser, args, root, order) -> int:
         parser.error(f"not found: {path}")
     provider = None
     active = [e for e in engines_mod.detect_engines(order, cache_path=root / ".engines.json",
-                                                    refresh=args.refresh_engines) if e.active]
+                                                    refresh=args.refresh_engines,
+                                                    chosen=_engine_models(args.engine_model)) if e.active]
     if active:
         provider = create_llm_provider(ProviderConfig(provider="chain", model="", options={
             "chain": engines_mod.chain_for(active, "haiku")}))
@@ -303,6 +327,10 @@ def main(argv=None) -> int:
             check_allowed(args.model)
         except ValueError as exc:
             parser.error(str(exc))
+    try:
+        chosen = _engine_models(args.engine_model)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.polish_only:
         if not args.input:
             parser.error("--polish-only needs -i with the EPUB to polish")
@@ -325,8 +353,11 @@ def main(argv=None) -> int:
         return _repair(parser, args, root)
     if args.detect:
         found = engines_mod.detect_engines(order, cache_path=root / ".engines.json",
-                                           refresh=args.refresh_engines)
+                                           refresh=args.refresh_engines, chosen=chosen)
         print(json.dumps([asdict(e) for e in found], ensure_ascii=False))
+        return 0
+    if args.list_models:
+        print(json.dumps(engines_mod.model_choices(order), ensure_ascii=False))
         return 0
     if args.inspect:
         return _inspect(parser, args, root, order)

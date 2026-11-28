@@ -30,6 +30,11 @@ struct EngineInfo: Codable, Identifiable, Equatable {
     /// The model that translates novels, as shown in Settings ("name@high" reads "name (high)").
     var modelName: String? {
         guard let model = models?["sonnet"], !model.isEmpty else { return nil }
+        return Self.display(model)
+    }
+
+    /// "name@high" (a model and its reasoning effort) reads "name (high)".
+    static func display(_ model: String) -> String {
         let parts = model.split(separator: "@")
         return parts.count == 2 ? "\(parts[0]) (\(parts[1]))" : model
     }
@@ -40,6 +45,25 @@ struct EngineInfo: Codable, Identifiable, Equatable {
     /// not hide an engine a newer version added. Empty stays empty (the engine's default).
     static func completeOrder(_ saved: [String]) -> [String] {
         saved.isEmpty ? [] : saved + known.filter { !saved.contains($0) }
+    }
+}
+
+/// One engine of `translate_book.py --list-models`: the app's recommendation and what else it offers.
+struct ModelChoices: Codable, Equatable {
+    var recommended: String
+    var choices: [String]
+}
+
+extension Array where Element == EngineInfo {
+    /// The engines in a new order, each with its new role: the first active one is the main one.
+    func arranged(_ names: [String]) -> [EngineInfo] {
+        var taken = false
+        return names.compactMap { name in first { $0.name == name } }.map { engine in
+            var engine = engine
+            engine.role = engine.active ? (taken ? "backup" : "main") : ""
+            taken = taken || engine.active
+            return engine
+        }
     }
 }
 

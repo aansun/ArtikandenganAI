@@ -269,3 +269,32 @@ struct RemoteImage: View {
         }
     }
 }
+
+/// A drop-down filled with the colour of the value it shows.
+struct RowMenu<Value: Hashable>: View {
+    var items: [(value: Value, title: String)]
+    @Binding var selection: Value
+    var fill: Color
+    var width: CGFloat
+    var height: CGFloat = 26
+
+    var body: some View {
+        Menu {
+            Picker("", selection: $selection) {
+                ForEach(items.indices, id: \.self) { Text(items[$0].title).tag(items[$0].value) }
+            }
+            .pickerStyle(.inline).labelsHidden()
+        } label: {
+            HStack(spacing: 4) {
+                Text(items.first { $0.value == selection }?.title ?? "").lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .heavy))
+            }
+            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.onAction)
+            .padding(.horizontal, 10).frame(width: width, height: height)
+            .background(fill, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+    }
+}

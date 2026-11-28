@@ -196,6 +196,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--no-split`, `--volume-pattern REGEX` | Control volume splitting |
 | `--chunk-tokens N`, `--parallel N` | Chunk size (default 1800); concurrent requests while translating (default 1) |
 | `--translate-provider auto\|claude-cli\|codex\|agy\|agy-claude` | `auto` (default): every active engine, first = main, rest = backups; or force one |
+| `--engine-model ENGINE=MODEL`, `--list-models` | Use [your own model](#models) for an engine; list the choices |
 | `--one-engine` | Use only the book's [main engine](#one-voice-for-a-book); wait (exit code 3) at its usage limit |
 | `--engines codex,claude`, `--refresh-engines` | Order or subset of engines for `auto`; probe them again instead of using the cached result |
 | `--style auto\|formal\|santai\|sastra` | Translation style; `auto` follows the recommendation |
@@ -242,6 +243,14 @@ without the user's `AGENTS.md`, `CLAUDE.md`, plugins or MCP servers. OpenCode ke
 history of the requests, which includes the passages sent.
 
 A model that its provider retires makes the engine inactive until the list is updated.
+
+**Your own choice.** The table is the recommendation. `--engine-model agy=gemini-3.8-flash-medium`
+(app: the menu under each engine in Settings) uses another model of that engine, for every kind of
+work; `--list-models` prints what each installed engine offers, the recommendation first. opus,
+fable, free, preview and orchestrator models are never offered or accepted, and an engine without a
+recommended model stays unusable. A chosen model that does not answer makes its engine inactive:
+nothing stands in for it silently. A choice that is not the recommendation has not been checked for
+translation quality. It applies from the next start or resume of a book.
 
 ## One voice for a book
 
