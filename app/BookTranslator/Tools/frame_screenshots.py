@@ -16,7 +16,7 @@ from PIL import Image, ImageCms, ImageDraw
 WIDTH = 1600
 OUTLINE = (205, 193, 180)
 #: Rows of the resized picture where the window is empty, as (first, last) to cut out.
-EMPTY_ROWS = {"add-books": (660, 940), "progress": (773, None)}
+EMPTY_ROWS = {"add-books": (710, 990), "progress": (773, None)}
 
 
 def to_srgb(image):

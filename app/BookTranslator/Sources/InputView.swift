@@ -252,7 +252,7 @@ private struct UploadedRow: View {
             }
             RowMenu(items: [BookKind.fiction, .nonfiction].map { ($0, loc.t($0.key)) },
                     selection: Binding(get: { book.kind }, set: { if $0 != book.kind { model.toggleKind(book.id) } }),
-                    fill: book.kind == .fiction ? Theme.actionFiction : Theme.actionNonfiction, width: 92)
+                    fill: book.kind == .fiction ? Theme.actionFiction : Theme.actionNonfiction, width: 112)
                 .help(loc.t("input.kindHelp"))
             Button(loc.t("input.prepare")) { model.makeReady(book.id) }
                 .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12)).fixedSize()
