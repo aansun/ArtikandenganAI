@@ -3,6 +3,7 @@ import XCTest
 
 final class UpdaterTests: XCTestCase {
     func testVersionOrdering() {
+        XCTAssertTrue(Updater.isNewer("1.2.0", than: "1.1.2"))
         XCTAssertTrue(Updater.isNewer("1.1.2", than: "1.1.1"))
         XCTAssertTrue(Updater.isNewer("1.1.1", than: "1.1.0"))
         XCTAssertTrue(Updater.isNewer("1.1.0", than: "1.0.12"))
