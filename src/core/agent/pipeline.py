@@ -40,6 +40,7 @@ import argparse
 import asyncio
 import json
 import logging
+import shutil
 import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
@@ -52,7 +53,7 @@ from src.core.agent.classifier import BookProfile, classify_book
 from src.core.agent.epub_metadata import (
     GENRE_SUBJECTS_ID, audit_metadata, finalize_metadata, read_metadata, strip_volume_suffix)
 from src.core.agent import engines as engines_mod
-from src.core.agent import final_check
+from src.core.agent import final_check, layout_repair
 from src.core.agent.glossary_builder import build_glossary, write_glossary
 from src.core.agent import qa as qa_mod
 from src.core.agent import series as series_mod
@@ -669,6 +670,50 @@ class BookAgent:
             self.say(f"Volume {vol.index}: deleted {len(removed)} page(s) that are not part of the "
                      f"book from the translation: {', '.join(removed)}")
 
+    def _mend_layout(self, vol: VolumeState) -> None:
+        """Cut again the paragraphs a lost layout marker broke, and word the front-matter
+        entries of the contents in the target language. No model is asked."""
+        output = Path(vol.output)
+        if output.suffix.lower() != ".epub" or not output.exists():
+            return
+        try:
+            moved = layout_repair.repair_paragraphs(output)
+            renamed = layout_repair.translate_contents(output, self.opt.target_language)
+        except Exception as exc:  # a finishing touch is never a reason to lose the volume
+            logger.warning("Could not mend the layout of volume %d: %s", vol.index, exc)
+            return
+        if moved:
+            self.say(f"Volume {vol.index}: mended {moved} paragraph break(s) inside a sentence")
+        if renamed:
+            self.say(f"Volume {vol.index}: translated contents entries: {', '.join(renamed)}")
+
+    def repair(self) -> int:
+        """Mend the layout of the finished volumes and check them again, without translating.
+        The files as they were are kept in <book>/previous/."""
+        done = [v for v in self.state.volumes if v.status == JobStatus.COMPLETED.value
+                and Path(v.output).suffix.lower() == ".epub" and Path(v.output).exists()]
+        if self.state.polish_only or not done:
+            self.say("Nothing to repair: " + ("a polished book keeps the layout of your file."
+                     if self.state.polish_only else "no finished EPUB in this folder."))
+            return 2
+        info = self.workdir / "book.json"
+        try:        # the language of the book as it was translated
+            self.opt.target_language = json.loads(info.read_text(encoding="utf-8"))["target_language"]
+        except (OSError, ValueError, KeyError):
+            pass
+        archive = self.workdir / "previous"
+        archive.mkdir(exist_ok=True)
+        for vol in done:
+            output = Path(vol.output)
+            kept = archive / f"{output.stem}.before-repair.{int(time.time())}{output.suffix}"
+            shutil.copy2(output, kept)
+            before = output.read_bytes()
+            self._mend_layout(vol)
+            if output.read_bytes() == before:
+                kept.unlink()
+                self.say(f"Volume {vol.index}: nothing to mend")
+        return self.check_only()
+
     def _glossary_entries(self) -> List[Dict[str, str]]:
         """The glossary as ``[{source, target, decision}]`` (empty when there is none)."""
         path = Path(self.state.glossary) if self.state.glossary else None
@@ -771,6 +816,7 @@ class BookAgent:
             vol.metadata_missing = audit_metadata(output, target_language=self.opt.target_language)
             return
         self._drop_boilerplate(vol)
+        self._mend_layout(vol)
         entries = self._glossary_entries()
         self._note_names(vol, entries)
         if output.suffix.lower() != ".epub":

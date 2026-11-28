@@ -11,6 +11,7 @@ from pathlib import Path
 
 from src.core.agent.classifier import classify_book, heuristic_profile
 from src.core.agent.epub_metadata import read_metadata
+from src.core.agent.layout_repair import source_warnings
 from src.core.agent.volumes import clean_stem, count_volumes
 from src.core.auto_prep import extract_source_text
 from src.core.llm.exceptions import RateLimitError
@@ -54,4 +55,5 @@ def inspect_book(path: Path, llm_provider=None, *, target_language: str = "Indon
         "classified_by": method,
         "words": words,
         "estimated_minutes": int(words / 1000 * per_kword),
+        "warnings": source_warnings(first) if first.suffix.lower() == ".epub" else [],
     }

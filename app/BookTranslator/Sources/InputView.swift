@@ -230,6 +230,13 @@ private struct UploadedRow: View {
                            : (book.kind == .fiction ? "input.hintFiction" : "input.hintNonfiction")))
                     .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+                ForEach(book.warnings.filter { Loc.table["input.warn.\($0)"] != nil }, id: \.self) { warning in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(loc.t("input.warn.\(warning)")).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .font(.system(size: 11)).foregroundStyle(Theme.warnIcon)
+                }
             }
         }
     }

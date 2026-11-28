@@ -11,10 +11,26 @@ Phase 2 of the multi-phase fallback system:
 - Phase 3: Untranslated fallback (preserve original)
 """
 
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 import re
 
 from src.common.cjk_punctuation import skip_closing_punctuation
+
+
+#: Markup that ends a block of text: a marker holding it separates two paragraphs.
+_BLOCK_END = re.compile(r"</(?:p|h[1-6]|li|div|blockquote|dd|dt|td|th|caption|figcaption)\s*>", re.I)
+_BLANK_LINE = re.compile(r"\n[ \t\r]*\n\s*")
+
+
+def split_blocks(text: str, tag_map: Dict[str, str]) -> Tuple[List[str], List[str]]:
+    """``text`` cut at its block markers: ``(segments, markers)``, one segment more than markers."""
+    markers = [ph for ph, markup in tag_map.items() if ph in text and _BLOCK_END.search(markup)]
+    markers.sort(key=text.index)
+    segments, rest = [], text
+    for marker in markers:
+        before, _found, rest = rest.partition(marker)
+        segments.append(before)
+    return segments + [rest], markers
 
 
 class TokenAlignmentFallback:
@@ -107,6 +123,26 @@ class TokenAlignmentFallback:
                 translated_without_placeholders,
                 placeholders
             )
+
+    def align_blocks(self, segments: List[str], markers: List[str], translated: str,
+                     placeholders: List[str]) -> Optional[str]:
+        """Place the block markers exactly where the translation breaks its paragraphs, and
+        the others by proportion inside their own paragraph. None when the translation has
+        another number of paragraphs than the original."""
+        clean = [self._remove_placeholders(s, placeholders) for s in segments]
+        holding = [i for i, text in enumerate(clean) if text.strip()]
+        parts = [p for p in _BLANK_LINE.split(translated.strip()) if p.strip()]
+        if not markers or len(parts) != len(holding):
+            return None
+        done = list(segments)       # a segment without text keeps its markers as they are
+        for i, part in zip(holding, parts):
+            inner = [ph for ph in placeholders if ph in segments[i]]
+            done[i] = (self.align_and_insert_placeholders(segments[i], part, inner)
+                       if inner else part)
+        result = done[0]
+        for marker, segment in zip(markers, done[1:]):
+            result += marker + segment
+        return result
 
     def _find_placeholder_positions(
         self,

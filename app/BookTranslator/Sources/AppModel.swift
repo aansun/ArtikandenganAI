@@ -334,6 +334,7 @@ final class AppModel {
                 update(id) {
                     $0.title = info.title; $0.author = info.author; $0.volumes = max(info.volumes, 1)
                     $0.kind = info.kind; $0.estimatedMinutes = info.estimatedMinutes
+                    $0.warnings = info.warnings ?? []
                     // translating a book into its own language makes no sense: offer the polish
                     $0.polishOnly = $0.canPolishOnly && QueueBook.isWritten(info.sourceLanguage, in: targetLanguage)
                     if $0.stage == .reading { $0.stage = .uploaded }
@@ -893,12 +894,17 @@ final class AppModel {
     // MARK: - Checking a finished book again
 
     /// Runs the engine's last stage on a library book. Returns nil, else why it could not.
-    func recheck(_ folder: String) async -> String? {
+    func recheck(_ folder: String) async -> String? { await runCheck(folder, "--check") }
+
+    /// Mends the layout of a finished book (no model is asked), then checks it again.
+    func repair(_ folder: String) async -> String? { await runCheck(folder, "--repair") }
+
+    private func runCheck(_ folder: String, _ command: String) async -> String? {
         guard checking == nil, env.isReady else { return nil }
         checking = folder
         defer { checking = nil }
         do {
-            _ = try await BackendClient.run(env, ["--check", env.booksDir.appendingPathComponent(folder).path])
+            _ = try await BackendClient.run(env, [command, env.booksDir.appendingPathComponent(folder).path])
         } catch {
             return error.localizedDescription.nonEmpty ?? Loc.shared.t("check.failed")
         }

@@ -87,6 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--check", metavar="BOOK_FOLDER",
                    help="Check the finished translation of a book folder again (no model is asked), "
                         "write its check.json and exit.")
+    p.add_argument("--repair", metavar="BOOK_FOLDER",
+                   help="Mend a finished translation without asking a model (paragraphs cut inside "
+                        "a sentence, front-matter contents entries), check it again and exit. The "
+                        "old files are kept in <book>/previous/.")
     p.add_argument("--detect", action="store_true",
                    help="Print the engines found on this machine as JSON and exit.")
     p.add_argument("--inspect", metavar="FILE",
@@ -211,6 +215,14 @@ def _check(parser, args, root) -> int:
     return agent.check_only()
 
 
+def _repair(parser, args, root) -> int:
+    folder = Path(args.repair)
+    if not (folder / "state.json").is_file():
+        parser.error(f"not a book folder: {folder}")
+    source = next(iter(sorted((folder / "source").glob("*"))), folder)
+    return BookAgent(AgentOptions(input_path=source, books_dir=root, workdir=folder), say=_say).repair()
+
+
 def _check_tools(parser, provider: str) -> None:
     if provider == PROVIDER_AUTO:
         return  # the engines are detected, and reported, when the run starts
@@ -251,7 +263,8 @@ def _selfcheck() -> int:
              "src.core.llm.providers.agy", "src.core.llm.providers.opencode_cli",
              "src.core.llm.providers.chain", "src.core.agent.models",
              "src.core.agent.log_report", "src.core.llm.activity", "src.core.agent.series",
-             "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check", "src.core.llm.voice"]
+             "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check", "src.core.llm.voice",
+             "src.core.agent.layout_repair"]
     missing = []
     for name in names:
         try:
@@ -308,6 +321,8 @@ def main(argv=None) -> int:
                        app_version=os.getenv("NNAI_APP_VERSION", ""))
     if args.check:
         return _check(parser, args, root)
+    if args.repair:
+        return _repair(parser, args, root)
     if args.detect:
         found = engines_mod.detect_engines(order, cache_path=root / ".engines.json",
                                            refresh=args.refresh_engines)

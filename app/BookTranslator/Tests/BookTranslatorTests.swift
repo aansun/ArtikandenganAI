@@ -276,6 +276,21 @@ final class QueueTests: XCTestCase {
         XCTAssertLessThanOrEqual(try XCTUnwrap(m.books[0].retryAt), Date())
     }
 
+    func testPoorSourcesAreToldAndLayoutFindingsCanBeMended() throws {
+        let json = #"{"file":"a.epub","title":"A","author":"","volumes":1,"source_language":"English","kind":"fiksi","estimated_minutes":1,"words":9,"warnings":["scanned"]}"#
+        XCTAssertEqual(try JSONDecoder.snake.decode(InspectResult.self, from: Data(json.utf8)).warnings, ["scanned"])
+        let old = json.replacingOccurrences(of: #","warnings":["scanned"]"#, with: "")
+        XCTAssertNil(try JSONDecoder.snake.decode(InspectResult.self, from: Data(old.utf8)).warnings)
+        for key in ["garbled", "scanned", "broken_paragraphs"] { XCTAssertNotNil(Loc.table["input.warn.\(key)"]) }
+        func report(_ id: String, _ level: String) -> CheckReport {
+            CheckReport(overall: level, volumes: [.init(index: 1, overall: level, checks: [.init(id: id, level: level, count: 1, items: [])])])
+        }
+        XCTAssertTrue(report("splits", "warn").canRepair)
+        XCTAssertTrue(report("toc", "warn").canRepair)
+        XCTAssertFalse(report("toc", "ok").canRepair)
+        XCTAssertFalse(report("links", "warn").canRepair)
+    }
+
     func testTheReadyCardWordingFollowsItsBooks() {
         let translate = book("A", stage: .ready)
         var polish = book("B", stage: .ready)

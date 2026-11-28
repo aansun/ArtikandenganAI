@@ -95,6 +95,11 @@ One run does, for each book:
    - **Boilerplate pages** that are not part of the book are deleted from the translation (spine,
      manifest, table of contents and file), also for a translation made before the cleaning
      existed: `--refresh-metadata` repairs such a book without translating again.
+   - **Layout** (no model is asked): a paragraph that a lost layout marker cut inside a sentence
+     is cut again at the real break, only when the text stays the same to the character; contents
+     entries every publisher words the same way ("Cover", "Copyright", "Contents") are written
+     in Indonesian. `--repair <book folder>` does both to a book translated earlier and keeps the
+     old file in `previous/`.
    - **Name check:** a capitalised word in the middle of a sentence that is not in the source,
      not in the glossary and one or two letters from a locked name ("Lestrada" for "Lestrade") is
      listed in `qa_report.md`. Nothing is replaced: ordinary words of the target language can look
@@ -109,7 +114,8 @@ One run does, for each book:
 10. **Final check** of each volume, without asking any model: the file opens and is well formed;
     every page of the upload that belongs to the book is there; paragraph counts match; no page or
     long paragraph is far shorter than its source; nothing was left in the source language; links
-    that worked still work; dialogue marks are the same across chapters; no page writes quotation
+    that worked still work; no paragraph breaks off inside a sentence; the front-matter contents
+    entries are in the target language; dialogue marks are the same across chapters; no page writes quotation
     marks or *kau*/*kamu* unlike the rest of the book ([one voice](#one-voice-for-a-book)); no locked name appears far
     more often than in the original (a sign of wrong replacements); book details are complete. The
     result is `check.json` (`ok`, `warn`, or `fail` when part of the book is probably missing).
@@ -130,6 +136,12 @@ failed. `--redo` polishes again from your file and keeps the earlier result in `
 
 The pass does not see an original, so it cannot find a mistranslation. A glossary is used only if
 you give one (`--glossary`).
+
+## The source file
+
+`--inspect` also reports signs of a poor EPUB, which the app shows before any work is spent:
+`garbled` (damaged characters), `scanned` (converted from a scan) and `broken_paragraphs` (many
+paragraphs break inside a sentence). A publisher's copy of the same book gives a better result.
 
 ## Where things go
 
@@ -187,6 +199,7 @@ anything still missing (title, creator, language, identifier, description, cover
 | `--one-engine` | Use only the book's [main engine](#one-voice-for-a-book); wait (exit code 3) at its usage limit |
 | `--engines codex,claude`, `--refresh-engines` | Order or subset of engines for `auto`; probe them again instead of using the cached result |
 | `--style auto\|formal\|santai\|sastra` | Translation style; `auto` follows the recommendation |
+| `--repair BOOK_FOLDER` | Mend broken paragraphs and front-matter contents entries of a finished translation, then check it (no model is asked) |
 | `--check BOOK_FOLDER` | Run the final check again on a translated book (no model is asked) and exit |
 | `--set-metadata BOOK_FOLDER --field F --value V` | Set one metadata field (title, creator, description, publisher, date, subject, language, series, isbn, cover) of every translated volume and exit; `\|` separates several subjects or authors; `cover` takes an image path |
 | `--no-log`, `--log-report` | Do not keep the [translation log](TRANSLATION_LOG.md) (also `AGENT_LOG=0`); print its summary |

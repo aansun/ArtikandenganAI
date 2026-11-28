@@ -84,7 +84,8 @@ through an API key. NNAI Translator narrows that down to translating whole **boo
   order, share their names and writing style.
 - **Cleaning and checking.** Licence headers, donation appeals and download-site credits are removed
   instead of translated, and every finished book is checked against its original: missing or shortened
-  pages, broken links and doubtful names are shown to you.
+  pages, paragraphs cut mid-sentence, broken links and doubtful names are shown to you, and a poor
+  source file is pointed out before you start.
 - **Metadata and a library.** Check and edit each book's metadata, find it online by ISBN, and browse the
   finished books with their covers.
 - **A native Mac app.** Light and dark theme, menu-bar progress, and the engine built in.

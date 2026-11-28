@@ -17,6 +17,10 @@ struct CheckReport: Codable, Equatable {
     var volumes: [Volume]
 
     var needsLook: Bool { overall == "warn" || overall == "fail" }
+    /// A finding that can be mended without translating again.
+    var canRepair: Bool {
+        volumes.flatMap(\.checks).contains { ["splits", "toc"].contains($0.id) && $0.level != "ok" }
+    }
     /// How many checks ask for a look.
     var problems: Int { volumes.flatMap(\.checks).filter { $0.level == "warn" || $0.level == "fail" }.count }
 
@@ -94,6 +98,13 @@ struct CheckCard: View {
                 if book.check != nil { Text(loc.t(book.isPolishOnly ? "check.limitPolish" : "check.limit")).font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true) }
                 if !failure.isEmpty { Text(failure).font(.system(size: 11)).foregroundStyle(Theme.danger).lineLimit(3) }
                 HStack(spacing: 6) {
+                    if book.check?.canRepair == true && !book.isPolishOnly {
+                        Button(loc.t("check.repair")) {
+                            Task { failure = await model.repair(book.folder) ?? "" }
+                        }.buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12.5))
+                            .disabled(model.checking != nil || !model.env.isReady || !model.canDelete(book.folder))
+                            .help(loc.t("check.repairHelp"))
+                    }
                     Button(model.checking == book.folder ? loc.t("check.running") : loc.t(book.check == nil ? "check.run" : "check.again")) {
                         Task { failure = await model.recheck(book.folder) ?? "" }
                     }.buttonStyle(GhostButtonStyle()).disabled(model.checking != nil || !model.env.isReady)

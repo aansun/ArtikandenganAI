@@ -40,9 +40,10 @@ def test_a_whole_translation_passes(tmp_path):
     source = book(tmp_path, "s", {"v1c1.xhtml": LONG, "v1c2.xhtml": LONG})
     output = book(tmp_path, "o", {"v1c1.xhtml": SAME, "v1c2.xhtml": SAME})
     result = found(source, output)
-    assert {c["level"] for c in result.values() if c["id"] != "metadata"} <= {"ok"}
+    assert {c["level"] for c in result.values() if c["id"] not in ("metadata", "toc")} <= {"ok"}
+    assert result["toc"]["items"] == ["Cover"]          # these pages were not through the agent
     assert set(result) == {"file", "pages", "paragraphs", "length", "untranslated", "quotes", "links",
-                           "names", "surplus", "voice", "metadata"}
+                           "names", "surplus", "splits", "toc", "voice", "metadata"}
 
 
 def test_missing_and_shortened_text_fails(tmp_path):

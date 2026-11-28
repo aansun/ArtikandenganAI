@@ -212,7 +212,11 @@ async def _phase2_token_alignment(chunk_text: str, local_tag_map: Dict[str, str]
                 "💡 Tip: A more capable LLM model may better preserve placeholders and avoid layout issues")
 
         from src.common.placeholder_format import PlaceholderFormat
-        clean_text = PlaceholderFormat.from_config().remove_all(chunk_text)
+        from .token_alignment_fallback import split_blocks
+        # Paragraphs are sent apart: glued together, their breaks could only be guessed back.
+        segments, block_markers = split_blocks(chunk_text, local_tag_map)
+        remove_all = PlaceholderFormat.from_config().remove_all
+        clean_text = "\n\n".join(t for t in map(remove_all, segments) if t.strip())
 
         # No placeholder instructions in this prompt.
         translated_clean = await _request(clean_text, settings, has_placeholders=False,
@@ -224,11 +228,14 @@ async def _phase2_token_alignment(chunk_text: str, local_tag_map: Dict[str, str]
             raise Exception(f"rejected clean translation, {survival_problem}")
 
         placeholders_list = list(local_tag_map.keys())
-        realigned = _get_aligner().align_and_insert_placeholders(
-            original_with_placeholders=chunk_text,
-            translated_without_placeholders=translated_clean,
-            placeholders=placeholders_list,
-        )
+        aligner = _get_aligner()
+        realigned = aligner.align_blocks(segments, block_markers, translated_clean, placeholders_list)
+        if realigned is None:
+            realigned = aligner.align_and_insert_placeholders(
+                original_with_placeholders=chunk_text,
+                translated_without_placeholders=translated_clean,
+                placeholders=placeholders_list,
+            )
         realigned = keep_edge_whitespace(chunk_text, realigned)
 
         # Should always pass, checked anyway.

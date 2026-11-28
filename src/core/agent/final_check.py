@@ -27,7 +27,7 @@ from urllib.parse import unquote
 
 from lxml import etree
 
-from src.core.agent import qa
+from src.core.agent import layout_repair, qa
 from src.core.agent.epub_metadata import audit_metadata
 from src.core.agent.intake import boilerplate_reason, judge_page
 from src.core.agent.volumes import _Epub
@@ -294,6 +294,11 @@ def check_volume(source: Path, output: Path, *, upload: Optional[Path] = None,
                            [f"{word} (like {name}, {count}x)" for word, (name, count) in names.items()]))
     surplus = _surplus(source_text, output_text, entries)
     results.append(_result("surplus", "warn" if surplus else "ok", surplus))
+    splits = layout_repair.split_paragraphs(source, output)
+    results.append(_result("splits", "warn" if splits else "ok", splits))
+    if not polished:        # the contents of a polished file are the owner's
+        left = layout_repair.untranslated_contents(output, target_language)
+        results.append(_result("toc", "warn" if left else "ok", left))
     results.append(_voice_check(result, target_language.strip().lower()
                                 in ("indonesian", "bahasa indonesia", "id")))
     missing = audit_metadata(output, target_language=target_language)

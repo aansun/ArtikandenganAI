@@ -53,6 +53,7 @@ struct InspectResult: Codable, Equatable {
     var kind: BookKind
     var estimatedMinutes: Int
     var words: Int
+    var warnings: [String]? = nil   // signs of a poor source file: "garbled", "scanned", "broken_paragraphs"
 }
 
 enum Stage: String, Codable {
@@ -97,6 +98,7 @@ struct QueueBook: Identifiable, Codable, Equatable {
     var retryAt: Date?            // waiting for a usage limit to pass: when to try again
     var waitingFor = ""           // the engine waited for; kept until the book is done, to tell it once
     var needsPrepare = false      // the limit came before the preparation was finished
+    var warnings: [String] = []   // what the first look found wrong with the source file
     var error = ""
 
     /// Only a single EPUB can be polished on its own.
@@ -156,6 +158,7 @@ extension QueueBook {
         retryAt = try saved.decodeIfPresent(Date.self, forKey: .retryAt)
         waitingFor = try read(.waitingFor, or: waitingFor)
         needsPrepare = try read(.needsPrepare, or: needsPrepare)
+        warnings = try read(.warnings, or: warnings)
         error = try read(.error, or: error)
     }
 }
