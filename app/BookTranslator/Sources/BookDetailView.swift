@@ -58,6 +58,7 @@ struct BookDetailView: View {
                     Label(loc.t("detail.openBooks"), systemImage: "book.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(PrimaryButtonStyle())
                 actions
+                metadataActions
                 if book.volumes.count > 1 { volumes }
                 KindleCard(book: book)
                 CheckCard(book: book).id(book.folder)
@@ -76,14 +77,6 @@ struct BookDetailView: View {
                     if let url = firstOutput { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                 }
                 rowLine
-                ActionRow(symbol: "globe", title: loc.t("detail.lookup.short"), help: loc.t("lookup.button")) { showLookup = true }
-                    .disabled(metadata == nil)
-                rowLine
-                ActionRow(symbol: verified ? "checkmark.seal.fill" : "checkmark.seal",
-                          title: loc.t(verified ? "detail.verified.short" : "detail.verify.short"),
-                          help: loc.t(verified ? "detail.verified" : "detail.verify"),
-                          tint: verified ? Theme.green : Theme.accent) { model.toggleVerified(book.folder) }
-                rowLine
                 Menu {
                     Button { confirmRedo = true } label: { Label(loc.t(redoKey), systemImage: "arrow.clockwise") }
                         .disabled(model.isBusy)
@@ -96,6 +89,23 @@ struct BookDetailView: View {
                     ActionLabel(symbol: "ellipsis.circle", title: loc.t("detail.more"), trailing: "chevron.down")
                 }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+            }
+        }
+    }
+
+    /// Everything about the details of the file, under its own heading.
+    private var metadataActions: some View {
+        CardBox {
+            VStack(spacing: 0) {
+                Text(loc.t("detail.metadata")).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 3)
+                ActionRow(symbol: "globe", title: loc.t("detail.lookup.short"), help: loc.t("lookup.button")) { showLookup = true }
+                    .disabled(metadata == nil)
+                rowLine
+                ActionRow(symbol: verified ? "checkmark.seal.fill" : "checkmark.seal",
+                          title: loc.t(verified ? "detail.verified.short" : "detail.verify.short"),
+                          help: loc.t(verified ? "detail.verified" : "detail.verify"),
+                          tint: verified ? Theme.green : Theme.accent) { model.toggleVerified(book.folder) }
             }
         }
     }
