@@ -56,11 +56,12 @@ _FILE_NAME_TITLE = re.compile(r"_|z-?lib|\b1lib\b|libgen|\.epub\b|\(\d+\)\s*$", 
 
 
 class KindleError(Exception):
-    """Why nothing could be sent: ``code`` is one word the app words for the user."""
+    """Why nothing could be sent: ``code`` is one word the app words for the user, ``stage``
+    the step of the connection that failed."""
 
-    def __init__(self, code: str, detail: str = ""):
+    def __init__(self, code: str, detail: str = "", stage: str = ""):
         super().__init__(f"{code}: {detail}" if detail else code)
-        self.code, self.detail = code, detail
+        self.code, self.detail, self.stage = code, detail, stage
 
 
 @dataclass
@@ -216,26 +217,32 @@ def message(settings: Settings, path: Path, title: str, author: str) -> EmailMes
 def connect(settings: Settings) -> smtplib.SMTP:
     """An encrypted, signed-in connection. The caller closes it."""
     context = ssl.create_default_context()
+    stage = "connect"
     try:
         if settings.port == 465:
             server = smtplib.SMTP_SSL(settings.host, settings.port, local_hostname=GREETING,
                                       timeout=TIMEOUT, context=context)
         else:
             server = smtplib.SMTP(settings.host, settings.port, local_hostname=GREETING, timeout=TIMEOUT)
+            stage = "encrypt"
             try:
                 server.starttls(context=context)        # raises when the server cannot encrypt
             except Exception:
                 server.close()
                 raise
+        stage = "sign_in"
         try:
             _sign_in(server, settings)
         except Exception:
             server.close()
             raise
-    except KindleError:
+    except KindleError as exc:
+        exc.stage = stage
         raise
     except Exception as exc:
-        raise _explain(exc, settings) from None
+        problem = _explain(exc, settings)
+        problem.stage = stage
+        raise problem from None
     return server
 
 
@@ -264,7 +271,9 @@ def _explain(exc: Exception, settings: Settings) -> KindleError:
         detail = f"{exc.smtp_code} {error.decode('utf-8', 'replace') if isinstance(error, bytes) else error}"
     detail = " ".join(detail.replace(settings.password, "***").split())[:200]
     if isinstance(exc, smtplib.SMTPAuthenticationError):
-        return KindleError("sign_in", detail)
+        # Gmail's own words for "this is the account's password, make an app password"
+        needs_app_password = exc.smtp_code == 534 and "5.7.9" in detail
+        return KindleError("app_password" if needs_app_password else "sign_in", detail)
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
         return KindleError("recipient_refused", detail)
     if isinstance(exc, smtplib.SMTPSenderRefused):

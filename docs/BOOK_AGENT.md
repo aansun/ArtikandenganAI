@@ -159,6 +159,12 @@ time; no address): the same file is skipped unless `--resend`, and a changed fil
 "Sent" means your mail server took the message; Amazon delivers it only when the sender is on its
 approved list.
 
+Every `--kindle-test` and `--kindle-send` adds a line to `<library>/_diagnostics/kindle.jsonl`: time,
+app version, server and port, the step that failed (`connect`, `encrypt`, `sign_in`), the server's
+reply and, for Gmail, whether the password has the shape of an app password. It holds no password,
+e-mail address, title or file name, stays on this computer and keeps the last 300 lines. In the app:
+**Settings > Send to Kindle > Sending log**.
+
 ## Where things go
 
 ```

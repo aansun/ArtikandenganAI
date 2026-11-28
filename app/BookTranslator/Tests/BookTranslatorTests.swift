@@ -381,7 +381,7 @@ final class QueueTests: XCTestCase {
         XCTAssertFalse(KindleCard.day("2026-11-28T01:00:00Z", Loc.shared).isEmpty)
         let failed = try JSONDecoder.snake.decode(KindleAnswer.self, from: Data(#"{"ok":false,"error":"sign_in","detail":"535"}"#.utf8))
         XCTAssertTrue(AppModel.kindleError(failed, Loc.shared).hasSuffix("(535)"))
-        for code in ["settings", "kindle_address", "sender_address", "sign_in", "sender_refused", "recipient_refused", "message_refused", "encryption", "connection", "book"] {
+        for code in ["settings", "kindle_address", "sender_address", "sign_in", "app_password", "sender_refused", "recipient_refused", "message_refused", "encryption", "connection", "book"] {
             XCTAssertNotNil(Loc.table["kindle.error.\(code)"], code)
         }
         for problem in ["unreadable", "too_large", "title", "author", "author_email", "language", "language_differs", "title_like_file_name", "damaged_characters", "cover", "same_title"] {

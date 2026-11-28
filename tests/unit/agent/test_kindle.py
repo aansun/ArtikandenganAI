@@ -8,11 +8,12 @@ import zipfile
 import pytest
 
 import translate_book
-from src.core.agent import kindle
+from src.core.agent import kindle, kindle_log
 from src.core.agent.epub_metadata import edit_field
 from tests.unit.agent.test_pipeline_e2e import book_dir, env, upload  # noqa: F401 - env is a fixture
 
 PASSWORD = "YOUR_APP_PASSWORD_HERE"
+_REAL_SMTP = smtplib.SMTP
 
 
 class FakeServer:
@@ -220,6 +221,50 @@ def test_a_character_the_sign_in_cannot_carry_is_not_quoted(monkeypatch):
     with pytest.raises(kindle.KindleError) as refused:
         kindle.connect(settings)
     assert refused.value.code == "sign_in" and "xa0" not in refused.value.detail
+
+
+def log_lines(env):
+    return [json.loads(line) for line in (env / "books" / "_diagnostics" / "kindle.jsonl").read_text().splitlines()]
+
+
+def test_a_refused_account_password_is_named_and_logged_without_secrets(env, capsys, monkeypatch, mail):
+    port, _seen = _gmail_like(b"534 5.7.9 Application-specific password required for me@example.org\r\n")
+    monkeypatch.setattr(smtplib, "SMTP", _REAL_SMTP)
+    monkeypatch.setattr(smtplib.SMTP, "starttls", lambda self, context=None: (220, b""))
+    monkeypatch.setenv("KINDLE_SMTP_HOST", "127.0.0.1")
+    monkeypatch.setenv("KINDLE_SMTP_PORT", str(port))
+    monkeypatch.setenv("NNAI_APP_VERSION", "9.9")
+    code, answer = run(capsys, "--kindle-test")
+    assert code == 1 and answer["error"] == "app_password"
+    [line] = log_lines(env)
+    assert (line["action"], line["ok"], line["stage"], line["error"], line["app"]) == \
+           ("test", False, "sign_in", "app_password", "9.9")
+    assert line["detail"].startswith("534 5.7.9") and "<address>" in line["detail"]
+    text = json.dumps(line)
+    assert PASSWORD not in text and "example.org" not in text and "reader@" not in text
+
+
+def test_each_test_and_send_is_logged_and_a_check_is_not(book, env, capsys, mail, monkeypatch):
+    run(capsys, "--kindle-check", str(book))
+    assert not (env / "books" / "_diagnostics").exists()
+    monkeypatch.setenv("KINDLE_SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setenv("KINDLE_SMTP_PASSWORD", "abcd" * 4)            # the shape of an app password
+    run(capsys, "--kindle-test")
+    mail.refuse = {"Fake Saga - Volume 1": True}
+    run(capsys, "--kindle-send", str(book))
+    test, send = log_lines(env)
+    assert test["ok"] and test["app_password_shape"] is True and test["own_user_name"] is False
+    assert send["action"] == "send" and [v["result"] for v in send["volumes"]] == ["failed", "sent"]
+    text = json.dumps([test, send])
+    assert "abcd" * 4 not in text and "@" not in text and "Fake Saga" not in text
+
+
+def test_the_log_keeps_the_newest_lines(tmp_path, monkeypatch):
+    monkeypatch.setattr(kindle_log, "KEEP", 3)
+    for number in range(5):
+        kindle_log.record(tmp_path, action="test", ok=False, detail=str(number))
+    lines = (tmp_path / "_diagnostics" / "kindle.jsonl").read_text().splitlines()
+    assert [json.loads(line)["detail"] for line in lines] == ["2", "3", "4"]
 
 
 def test_two_volumes_under_one_title_and_a_file_name_title_are_told(book, capsys):

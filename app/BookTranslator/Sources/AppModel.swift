@@ -974,6 +974,21 @@ final class AppModel {
         return answer?.files ?? []
     }
 
+    var kindleLogFile: URL { env.booksDir.appendingPathComponent("_diagnostics/kindle.jsonl") }
+
+    /// Puts the Kindle log on the clipboard. False when nothing was recorded yet.
+    func copyKindleLog() -> Bool {
+        guard let text = try? String(contentsOf: kindleLogFile, encoding: .utf8), !text.isEmpty else { return false }
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func showKindleLog() {
+        let folder = kindleLogFile.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
+    }
+
     func sendToKindle(_ folder: String, volume: Int, resend: Bool) async -> (ok: Bool, text: String) {
         guard kindleSending == nil, kindleReady else { return (false, Loc.shared.t("kindle.setUp")) }
         kindleSending = "\(folder)#\(volume)"

@@ -37,7 +37,7 @@ ensure_utf8_stdio()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from src.core.agent import AgentOptions, BookAgent, engines as engines_mod, library, parse_volume_selection  # noqa: E402
-from src.core.agent import kindle  # noqa: E402
+from src.core.agent import kindle, kindle_log  # noqa: E402
 from src.core.agent import log_report  # noqa: E402
 from src.core.agent import models as model_list  # noqa: E402
 from src.core.llm import activity  # noqa: E402
@@ -259,9 +259,21 @@ def _repair(parser, args, root) -> int:
     return BookAgent(AgentOptions(input_path=source, books_dir=root, workdir=folder), say=_say).repair()
 
 
-def _kindle(parser, args) -> int:
-    """The Kindle commands: one line of JSON on stdout; exit 0 only when all went well."""
-    def answer(data: dict, code: int) -> int:
+def _kindle(parser, args, root) -> int:
+    """The Kindle commands: one line of JSON on stdout; exit 0 only when all went well.
+    A test and a send are written to the Kindle log in the library."""
+    started = time.monotonic()
+    action = "test" if args.kindle_test else ("send" if args.kindle_send else "")
+
+    def answer(data: dict, code: int, stage: str = "") -> int:
+        if action:
+            kindle_log.record(root, app_version=os.getenv("NNAI_APP_VERSION", ""),
+                              password=(os.getenv("KINDLE_SMTP_PASSWORD") or "").strip(),
+                              action=action, **kindle_log.settings_facts(os.environ),
+                              ok=bool(data.get("ok")), stage=stage, error=data.get("error"),
+                              detail=data.get("detail"),
+                              volumes=[dict(r) for r in data.get("results", [])],
+                              seconds=round(time.monotonic() - started, 1))
         print(json.dumps(data, ensure_ascii=False))
         return code
 
@@ -279,7 +291,7 @@ def _kindle(parser, args) -> int:
         done = all(r["result"] in ("sent", "already") for r in results) and bool(results)
         return answer({"ok": done, "results": results}, 0 if done else 1)
     except kindle.KindleError as exc:
-        return answer({"ok": False, "error": exc.code, "detail": exc.detail}, 1)
+        return answer({"ok": False, "error": exc.code, "detail": exc.detail}, 1, exc.stage)
 
 
 def _check_tools(parser, provider: str) -> None:
@@ -324,7 +336,8 @@ def _selfcheck() -> int:
              "src.core.llm.providers.chain", "src.core.agent.models",
              "src.core.agent.log_report", "src.core.llm.activity", "src.core.agent.series",
              "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check", "src.core.llm.voice",
-             "src.core.agent.layout_repair", "src.core.agent.kindle"]
+             "src.core.agent.layout_repair", "src.core.agent.kindle",
+             "src.core.agent.kindle_log"]
     missing = []
     for name in names:
         try:
@@ -384,7 +397,7 @@ def main(argv=None) -> int:
     activity.configure(root / log_report.FOLDER if keep_log else None,
                        app_version=os.getenv("NNAI_APP_VERSION", ""))
     if args.kindle_check or args.kindle_send or args.kindle_test:
-        return _kindle(parser, args)
+        return _kindle(parser, args, root)
     if args.check:
         return _check(parser, args, root)
     if args.repair:

@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var kindlePassword = ""
     @State private var kindleTest: (ok: Bool, text: String)?
     @State private var kindleTesting = false
+    @State private var kindleLogCopied: Bool?
     var height: CGFloat = 820            // the window scrolls; the screen tests render it whole
     @State private var keyStored = !Secrets.googleBooksKey.isEmpty
 
@@ -260,6 +261,10 @@ struct SettingsView: View {
             divider
             row(loc.t("kindle.password"), loc.t("kindle.passwordHint")) {
                 HStack {
+                    if model.kindle.server == .gmail {
+                        Button(loc.t("kindle.makePassword")) { NSWorkspace.shared.open(AboutPanel.appPasswordURL) }
+                            .buttonStyle(GhostButtonStyle())
+                    }
                     if model.kindlePasswordStored {
                         Pill(text: loc.t("settings.keySaved"), bg: Theme.okBg, fg: Theme.okText, size: 12)
                         Button(loc.t("settings.keyRemove")) { model.removeKindlePassword(); kindleTest = nil }.buttonStyle(GhostButtonStyle())
@@ -279,6 +284,13 @@ struct SettingsView: View {
                 .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12.5))
                 .disabled(!model.kindleReady || kindleTesting || !model.env.isReady)
                 .opacity(model.kindleReady ? 1 : 0.4)
+            }
+            divider
+            row(loc.t("kindle.log"), kindleLogCopied.map { loc.t($0 ? "kindle.logCopied" : "kindle.logEmpty") } ?? loc.t("kindle.logHint")) {
+                HStack {
+                    Button(loc.t("settings.logFolder")) { model.showKindleLog() }.buttonStyle(GhostButtonStyle())
+                    Button(loc.t("kindle.logCopy")) { kindleLogCopied = model.copyKindleLog() }.buttonStyle(GhostButtonStyle())
+                }
             }
         }
     }
