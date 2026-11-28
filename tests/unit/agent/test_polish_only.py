@@ -171,6 +171,26 @@ def test_only_an_epub_can_be_polished_and_nothing_is_moved(env, capsys):
     assert plain.exists() and not (env / "books" / "plain_polish").exists()
 
 
+def test_a_page_without_text_does_not_leave_the_book_unfinished(env):
+    """Many e-books open with a cover page whose body is empty."""
+    source = mine(env, volumes=1)
+    with zipfile.ZipFile(source) as z:
+        entries = {n: z.read(n) for n in z.namelist()}
+    blank = (b'<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml">'
+             b"<head><title>Cover</title></head><body/></html>")
+    entries["OEBPS/cover.xhtml"] = blank
+    with zipfile.ZipFile(source, "w") as z:
+        for name, data in entries.items():
+            z.writestr(name, data)
+
+    assert translate_book.main(["-i", str(source), *POLISH]) == 0
+    [volume] = book(env)["volumes"]
+    assert volume["status"] == "completed" and (work(env) / "check.json").exists()
+    with zipfile.ZipFile(volume["output"]) as z:
+        assert z.read("OEBPS/cover.xhtml") == blank
+    assert not list((work(env) / "translation").glob("*.jsonl"))
+
+
 def test_pages_the_polish_pass_left_alone_are_listed(tmp_path):
     long_page = "<p>" + "kata " * 120 + "</p>"
 

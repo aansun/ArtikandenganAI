@@ -51,18 +51,23 @@ async def _refine_one_xhtml(
     check_interruption_callback: Optional[Callable],
     container: Optional[TranslationContainer] = None,
     progress: Optional[ProgressReporter] = None,
-) -> bool:
+) -> Optional[bool]:
     """Refine a single parsed XHTML document in place.
 
-    The body is chunked exactly like the translation chunked it.
+    The body is chunked exactly like the translation chunked it. None: the page holds no
+    text (a cover, a blank page), so there is nothing to refine and it stays as it is.
     """
     body_element, prepared = chunk_document(
         doc_root, max_tokens_per_chunk, container=container, log_callback=log_callback
     )
-    if body_element is None or prepared.is_empty:
+    if body_element is None:
         if log_callback:
             log_callback("no_body", "No <body> element found")
         return False
+    if prepared.is_empty:
+        if log_callback:
+            log_callback("empty_body", "No text on this page, nothing to refine")
+        return None
 
     chunks = prepared.chunks
     global_tag_map = prepared.global_tag_map
@@ -243,7 +248,9 @@ async def refine_epub_file(job: JobConfig, ctx: JobContext) -> bool:
                     _save_partial_epub(temp_dir, output_filepath, log_callback)
                     raise
 
-                if ok:
+                if ok is None:      # no text: not a failure, and the file is not rewritten
+                    completed += 1
+                elif ok:
                     try:
                         tree.write(file_path, xml_declaration=True,
                                    encoding='utf-8', method='xml')
