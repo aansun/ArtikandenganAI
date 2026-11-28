@@ -30,6 +30,9 @@ order, and they are translated one after another while you do something else.
   and cover are checked first, books already sent are marked, and a changed one can be sent again.
   You enter your Kindle address, your sender address and an app password once; the password stays in
   the Keychain.
+- **Send to an Xteink reader.** Send a finished book over Wi-Fi to an Xteink e-ink reader running the
+  [CrossPoint](https://github.com/crosspoint-reader/crosspoint-reader) firmware, with pictures and fonts
+  prepared for its screen.
 - **A library.** Finished books appear with their covers. Check the metadata, fix a field, or look the book
   up online by its ISBN (Open Library, Google Books) before you put it in Apple Books.
 - **Your Mac.** Light and dark theme, English or Indonesian menus, 18 target languages

@@ -74,6 +74,8 @@ struct BookDetailView: View {
                 rowLine
                 KindleCard(book: book)
                 rowLine
+                XteinkRow(book: book).id(book.folder)
+                rowLine
                 ActionRow(symbol: "folder.fill", image: OfficialIcons.finder, title: "Finder", help: loc.t("detail.reveal"),
                           trailing: "arrow.up.forward") {
                     if let url = firstOutput { NSWorkspace.shared.activateFileViewerSelecting([url]) }

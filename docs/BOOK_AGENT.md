@@ -165,6 +165,26 @@ reply and, for Gmail, whether the password has the shape of an app password. It 
 e-mail address, title or file name, stays on this computer and keeps the last 300 lines. In the app:
 **Settings > Send to Kindle > Sending log**.
 
+## Send to an Xteink reader
+
+For an Xteink X4 or X3 running the [CrossPoint](https://github.com/crosspoint-reader/crosspoint-reader)
+firmware, with *File Transfer* open on the reader and both devices on one network. Xteink's own
+firmware is not supported.
+
+- `--xteink-test` asks the reader who it is. `--xteink-check <book folder>` shows which volumes were
+  sent. `--xteink-send <book folder>` uploads them (all, or `--volumes`).
+- `--xteink-address` (default `crosspoint.local`, or the IP address on the reader's screen) and
+  `--xteink-folder` (default `/Books`, made when missing). Only addresses of the local network are
+  accepted.
+- Before sending, a copy is prepared for the screen: pictures become baseline grayscale JPEG no larger
+  than 480x800 (X4) or 528x792 (X3), and embedded fonts are left out. The text is not touched and your
+  file is not changed; `--xteink-as-is` sends it unchanged. The picture settings follow
+  [EPUB Kit](https://github.com/b1rdmania/epubkit) (MIT).
+- After the upload the folder is read back: a file whose size differs is not counted as sent. A file of
+  the same name that this app did not send is replaced only with `--resend`. What was sent is kept in
+  `<book>/xteink.json`, and each test and send adds a line to `<library>/_diagnostics/xteink.jsonl`
+  (address, device, firmware, reply; no title or path).
+
 ## Where things go
 
 ```

@@ -37,7 +37,7 @@ ensure_utf8_stdio()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from src.core.agent import AgentOptions, BookAgent, engines as engines_mod, library, parse_volume_selection  # noqa: E402
-from src.core.agent import kindle, kindle_log  # noqa: E402
+from src.core.agent import kindle, kindle_log, xteink  # noqa: E402
 from src.core.agent import log_report  # noqa: E402
 from src.core.agent import models as model_list  # noqa: E402
 from src.core.llm import activity  # noqa: E402
@@ -109,7 +109,21 @@ def build_parser() -> argparse.ArgumentParser:
                         "KINDLE_TO, KINDLE_FROM, KINDLE_SMTP_HOST, KINDLE_SMTP_PORT, "
                         "KINDLE_SMTP_USER, KINDLE_SMTP_PASSWORD (never from the command line).")
     p.add_argument("--resend", action="store_true",
-                   help="With --kindle-send: send even a file that was already sent.")
+                   help="With --kindle-send or --xteink-send: send even a file that was "
+                        "already sent (on the reader: replace a file of the same name).")
+    p.add_argument("--xteink-check", metavar="BOOK_FOLDER",
+                   help="Print, as JSON, whether each finished volume was sent to the e-ink reader.")
+    p.add_argument("--xteink-send", metavar="BOOK_FOLDER",
+                   help="Send the finished volumes (all, or --volumes) to an Xteink reader running "
+                        "CrossPoint, over the local network.")
+    p.add_argument("--xteink-test", action="store_true",
+                   help="Ask the reader who it is and send nothing.")
+    p.add_argument("--xteink-address", default=xteink.ADDRESS, metavar="ADDRESS",
+                   help="The reader's name or IP address (default: %(default)s).")
+    p.add_argument("--xteink-folder", default=xteink.FOLDER, metavar="FOLDER",
+                   help="The folder on the reader's card (default: %(default)s).")
+    p.add_argument("--xteink-as-is", action="store_true",
+                   help="Send the file as it is, without preparing its pictures and fonts for e-ink.")
     p.add_argument("--kindle-test", action="store_true",
                    help="Sign in to the mail server with the Kindle settings and send nothing.")
     p.add_argument("--detect", action="store_true",
@@ -294,6 +308,43 @@ def _kindle(parser, args, root) -> int:
         return answer({"ok": False, "error": exc.code, "detail": exc.detail}, 1, exc.stage)
 
 
+def _xteink(parser, args, root) -> int:
+    """The e-ink reader commands: one line of JSON on stdout; exit 0 only when all went well."""
+    started = time.monotonic()
+    action = "test" if args.xteink_test else ("send" if args.xteink_send else "")
+    found: dict = {}
+
+    def answer(data: dict, code: int) -> int:
+        if action:
+            kindle_log.record(root, app_version=os.getenv("NNAI_APP_VERSION", ""), file="xteink.jsonl",
+                              action=action, address=args.xteink_address[:200], device=found.get("device"),
+                              firmware=f"{found.get('firmware', '')} {found.get('version', '')}".strip(),
+                              ok=bool(data.get("ok")), error=data.get("error"), detail=data.get("detail"),
+                              volumes=[dict(r) for r in data.get("results", [])],
+                              seconds=round(time.monotonic() - started, 1))
+        print(json.dumps(data, ensure_ascii=False))
+        return code
+
+    try:
+        if args.xteink_test:
+            xteink.parse_folder(args.xteink_folder)
+            found.update(xteink.Reader(args.xteink_address).status())
+            return answer({"ok": True, **found}, 0)
+        folder = Path(args.xteink_check or args.xteink_send)
+        if not (folder / "book.json").is_file():
+            parser.error(f"not a book folder: {folder}")
+        if args.xteink_check:
+            return answer(xteink.run_check(folder), 0)
+        reader, results = xteink.send(
+            folder, args.xteink_address, args.xteink_folder, resend=args.resend, prepare=not args.xteink_as_is,
+            volumes=parse_volume_selection(args.volumes) if args.volumes else None)
+        found.update(reader)
+        done = all(r["result"] in ("sent", "already") for r in results) and bool(results)
+        return answer({"ok": done, "results": results, **found}, 0 if done else 1)
+    except xteink.XteinkError as exc:
+        return answer({"ok": False, "error": exc.code, "detail": exc.detail}, 1)
+
+
 def _check_tools(parser, provider: str) -> None:
     if provider == PROVIDER_AUTO:
         return  # the engines are detected, and reported, when the run starts
@@ -337,7 +388,8 @@ def _selfcheck() -> int:
              "src.core.agent.log_report", "src.core.llm.activity", "src.core.agent.series",
              "src.core.agent.stages", "src.core.refine.chunk_cache", "src.core.agent.final_check", "src.core.llm.voice",
              "src.core.agent.layout_repair", "src.core.agent.kindle",
-             "src.core.agent.kindle_log"]
+             "src.core.agent.kindle_log",
+             "src.core.agent.xteink", "src.core.agent.xteink_optimize"]
     missing = []
     for name in names:
         try:
@@ -398,6 +450,8 @@ def main(argv=None) -> int:
                        app_version=os.getenv("NNAI_APP_VERSION", ""))
     if args.kindle_check or args.kindle_send or args.kindle_test:
         return _kindle(parser, args, root)
+    if args.xteink_check or args.xteink_send or args.xteink_test:
+        return _xteink(parser, args, root)
     if args.check:
         return _check(parser, args, root)
     if args.repair:

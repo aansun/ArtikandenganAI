@@ -23,6 +23,7 @@ targets:
       properties:
         CFBundleDisplayName: NNAI Translator
         CFBundleName: NNAI Translator
+        NSLocalNetworkUsageDescription: "NNAI Translator sends your books to an e-ink reader on your own network."
         NSHumanReadableCopyright: "GNU AGPL-3.0. Source: https://github.com/aansun/NNAI-Translator"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"

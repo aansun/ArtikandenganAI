@@ -190,6 +190,20 @@ enum BackendClient {
         return try JSONDecoder.snake.decode(KindleAnswer.self, from: lastJSON(data))
     }
 
+    /// An e-ink reader command. Its answer is read whether it succeeded or not.
+    static func xteink(_ env: BackendEnvironment, _ arguments: [String]) async throws -> XteinkAnswer {
+        guard env.isReady else { throw BackendError(message: "the translation engine is not ready (\(env.root.path))") }
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
+            let process = env.makeProcess(arguments)
+            let out = Pipe()
+            process.standardOutput = out
+            process.standardError = Pipe()
+            process.terminationHandler = { _ in continuation.resume(returning: out.fileHandleForReading.readDataToEndOfFile()) }
+            do { try process.run() } catch { continuation.resume(throwing: error) }
+        }
+        return try JSONDecoder.snake.decode(XteinkAnswer.self, from: lastJSON(data))
+    }
+
     static func modelChoices(_ env: BackendEnvironment) async throws -> [String: ModelChoices] {
         let data = try await run(env, ["--list-models"])
         return try JSONDecoder().decode([String: ModelChoices].self, from: lastJSON(data))

@@ -1,6 +1,24 @@
 import SwiftUI
 
-/// Settings, as in the design: grouped white cards of rows (title and hint left, control right).
+/// The kinds of settings, one tab each.
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general, engines, translation, library, kindle, xteink, about
+    static let key = "settingsTab"
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .engines: return "cpu"
+        case .translation: return "character.book.closed"
+        case .library: return "books.vertical"
+        case .kindle: return "paperplane"
+        case .xteink: return "ipad"
+        case .about: return "info.circle"
+        }
+    }
+}
+
+/// Settings: tabs by function, each with grouped cards of rows (title and hint left, control right).
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
@@ -12,165 +30,252 @@ struct SettingsView: View {
     @State private var kindleTest: (ok: Bool, text: String)?
     @State private var kindleTesting = false
     @State private var kindleLogCopied: Bool?
-    var height: CGFloat = 820            // the window scrolls; the screen tests render it whole
+    @State private var xteinkTest: (ok: Bool, text: String)?
+    @State private var xteinkTesting = false
+    @State private var xteinkLogCopied: Bool?
+    var height: CGFloat = 640            // the window scrolls; the screen tests render it whole
+    var fixedTab: SettingsTab? = nil     // the screen tests show one section
+    @AppStorage(SettingsTab.key) private var tabName = SettingsTab.general.rawValue
     @State private var keyStored = !Secrets.googleBooksKey.isEmpty
 
     var body: some View {
-        @Bindable var model = model
-        @Bindable var updater = updater
-        ScrollView {
-            VStack(spacing: 16) {
-                if !model.env.isReady && !model.env.isBuiltIn { warning }
-
-                group {
-                    row(loc.t("settings.appearance"), loc.t("settings.appearanceHint")) {
-                        IconSegmented(items: AppearanceMode.allCases.map { ($0, $0.symbol, loc.t("appearance.\($0.rawValue)")) },
-                                      selection: Binding(get: { appearance.mode }, set: { appearance.mode = $0 }), showLabels: true)
-                    }
-                    divider
-                    row(loc.t("settings.language"), loc.t("settings.languageHint2")) {
-                        Segmented(items: AppLanguage.allCases.map { ($0, $0 == .id ? "Indonesia" : "English") },
-                                  selection: Binding(get: { loc.language }, set: { loc.language = $0 }), fontSize: 13, hPad: 14)
-                    }
-                }
-
-                group { enginesBlock }
-
-                group {
-                    row(loc.t("settings.qualityTitle"), loc.t("settings.q.hint.\(model.quality)")) {
-                        Segmented(items: ["economy", "balanced", "best"].map { ($0, loc.t("settings.q.\($0)")) },
-                                  selection: $model.quality, fontSize: 13, hPad: 12)
-                    }
-                    divider
-                    row(loc.t("settings.target"), model.targetLanguage == "Indonesian" ? loc.t("settings.targetHint") : loc.t("settings.targetHintOther")) {
-                        Picker("", selection: $model.targetLanguage) {
-                            ForEach(TargetLanguages.all, id: \.self) { Text(loc.t("langname.\($0)")).tag($0) }
-                        }
-                        .labelsHidden().frame(width: 190)
-                    }
-                    divider
-                    row(loc.t("settings.style"), loc.t("settings.style.hint.\(model.styleMode.rawValue)")) {
-                        Segmented(items: StyleMode.allCases.map { ($0, loc.t("settings.style.\($0.rawValue)")) },
-                                  selection: $model.styleMode, fontSize: 13, hPad: 12)
-                    }
-                    divider
-                    row(loc.t("settings.polish"), loc.t("settings.polishHint")) {
-                        Toggle("", isOn: $model.polishNovels).labelsHidden().toggleStyle(.switch).tint(Theme.green)
-                    }
-                    divider
-                    row(loc.t("settings.limit"), loc.t(model.keepModel ? "settings.limit.waitHint" : "settings.limit.switchHint")) {
-                        Segmented(items: [(false, loc.t("settings.limit.switch")), (true, loc.t("settings.limit.wait"))],
-                                  selection: $model.keepModel, fontSize: 13, hPad: 12)
-                    }
-                    divider
-                    row(loc.t("settings.parallel"), loc.t("settings.parallelHint")) {
-                        Segmented(items: AppModel.parallelChoices.map { ($0, "\($0)") },
-                                  selection: $model.parallelRequests, fontSize: 13, hPad: 14)
-                    }
-                    Text(loc.t("settings.speedNote")).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16).padding(.vertical, 10).background(Theme.sidePanel)
-                }
-
-                group {
-                    row(loc.t("settings.libraryTitle"), model.env.booksDir.path) {
-                        HStack {
-                            Button(loc.t("settings.reveal")) { NSWorkspace.shared.activateFileViewerSelecting([model.env.booksDir]) }.buttonStyle(GhostButtonStyle())
-                            Button(loc.t("settings.change")) { chooseFolder(model.env.booksDir) { url in
-                                UserDefaults.standard.set(url.path, forKey: "booksDir"); model.env.booksDir = url; model.library.reload(env: model.env, force: true)
-                            } }.buttonStyle(GhostButtonStyle())
-                        }
-                    }
-                    divider
-                    if model.env.isBuiltIn {
-                        row(loc.t("settings.backend"), model.engineSetup.state == .ready ? loc.t("settings.engineBuiltIn") : loc.t("settings.engineNotReady")) {
-                            HStack {
-                                Button(loc.t("settings.engineRepair")) { model.repairEngine() }.buttonStyle(GhostButtonStyle())
-                                    .disabled(model.engineSetup.state == .working)
-                                Button(loc.t("settings.engineUseFolder")) { model.chooseDeveloperFolder() }.buttonStyle(GhostButtonStyle())
-                            }
-                        }
-                    } else {
-                        row(loc.t("settings.backend"), model.env.root.path) {
-                            HStack {
-                                if BackendEnvironment.bundledEngine != nil {
-                                    Button(loc.t("settings.engineUseBuiltIn")) { model.useBuiltInEngine() }.buttonStyle(GhostButtonStyle())
-                                }
-                                Button(loc.t("settings.change")) { model.chooseDeveloperFolder() }.buttonStyle(GhostButtonStyle())
-                            }
-                        }
-                    }
-                    divider
-                    row(loc.t("settings.addToBooks"), loc.t("settings.addToBooksHint")) { Toggle("", isOn: $model.addToBooks).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
-                }
-
-                kindleBlock
-
-                group {
-                    row(loc.t("settings.onlineMeta"), loc.t("settings.onlineMetaHint")) {
-                        HStack {
-                            if keyStored {
-                                Pill(text: loc.t("settings.keySaved"), bg: Theme.okBg, fg: Theme.okText, size: 12)
-                                Button(loc.t("settings.keyRemove")) { Secrets.googleBooksKey = ""; keyStored = false }.buttonStyle(GhostButtonStyle())
-                            } else {
-                                SecureField(loc.t("settings.keyPlaceholder"), text: $apiKey).textFieldStyle(.roundedBorder).frame(width: 180)
-                                Button(loc.t("settings.keySave")) { Secrets.googleBooksKey = apiKey.trimmingCharacters(in: .whitespaces); apiKey = ""; keyStored = !Secrets.googleBooksKey.isEmpty }
-                                    .buttonStyle(GhostButtonStyle()).disabled(apiKey.isEmpty)
-                            }
-                        }
+        VStack(spacing: 0) {
+            tabs
+            Rectangle().fill(Theme.barLine).frame(height: 1)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !model.env.isReady && !model.env.isBuiltIn { warning }
+                    switch tab {
+                    case .general: appearanceSection; runningSection
+                    case .engines: group { enginesBlock }
+                    case .translation: resultSection; speedSection
+                    case .library: folderSection; metadataSection
+                    case .kindle: heading(loc.t("kindle.title")); kindleBlock
+                    case .xteink: heading(loc.t("xteink.title")); xteinkBlock
+                    case .about: updateSection; logSection
                     }
                 }
-
-                group {
-                    row(loc.t("settings.log"), loc.t("settings.logHint")) {
-                        Toggle("", isOn: $model.keepLog).labelsHidden().toggleStyle(.switch).tint(Theme.green)
-                    }
-                    divider
-                    row(loc.t("settings.logShare"), summaryCopied.map { loc.t($0 ? "settings.logCopied" : "settings.logCopyFailed") } ?? loc.t("settings.logShareHint")) {
-                        HStack {
-                            Button(loc.t("settings.logFolder")) { model.openLogFolder() }.buttonStyle(GhostButtonStyle())
-                            Button(loc.t("settings.logCopy")) { Task { summaryCopied = await model.copyLogSummary() } }
-                                .buttonStyle(GhostButtonStyle()).disabled(!model.env.isReady)
-                            if summaryCopied == true {
-                                Button(loc.t("settings.logReport")) { NSWorkspace.shared.open(AboutPanel.logReportURL) }.buttonStyle(GhostButtonStyle())
-                            }
-                        }
-                    }
-                    divider
-                    row(loc.t("settings.logAbout"), loc.t("settings.logAboutHint")) {
-                        Button(loc.t("settings.open")) { NSWorkspace.shared.open(AboutPanel.logPageURL) }.buttonStyle(GhostButtonStyle())
-                    }
-                }
-
-                group {
-                    row(loc.t("settings.keepAwake"), loc.t("settings.keepAwakeHint")) { Toggle("", isOn: $model.keepAwake).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
-                    divider
-                    row(loc.t("settings.notifyVolume"), "") { Toggle("", isOn: $model.notifyVolume).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
-                    divider
-                    row(loc.t("settings.notifyAttention"), loc.t("settings.notifyAttentionHint")) { Toggle("", isOn: $model.notifyAttention).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
-                }
-
-                group {
-                    row(Text(loc.t("app.title")).font(.system(size: 14, weight: .medium))
-                        + Text(" " + loc.t("settings.versionNow", Updater.currentVersion, Updater.currentBuild)).font(.system(size: 14)).foregroundColor(Theme.muted),
-                        updater.lastChecked.map { loc.t("settings.lastChecked", $0.formatted(date: .abbreviated, time: .shortened)) } ?? loc.t("settings.never")) {
-                        Button(updater.state == .checking ? loc.t("settings.checking") : loc.t("settings.check")) { Task { await updater.check() } }
-                            .buttonStyle(GhostButtonStyle()).disabled(updater.state == .checking || updater.state == .downloading)
-                    }
-                    divider
-                    row(loc.t("settings.auto"), loc.t("settings.autoHint")) { Toggle("", isOn: $updater.autoUpdate).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
-                    updateBanner
-                    divider
-                    row(loc.t("settings.github"), loc.t("settings.githubHint")) {
-                        Button(loc.t("settings.open")) { NSWorkspace.shared.open(AboutPanel.repositoryURL) }.buttonStyle(GhostButtonStyle())
-                    }
-                }
+                .padding(.horizontal, 24).padding(.vertical, 16)
             }
-            .padding(.horizontal, 24).padding(.vertical, 20)
+            .id(tab)                             // each section starts at its top
         }
         .frame(width: 700, height: height)
         .task { await updater.checkIfStale(Updater.settingsAge) }
         .background(Theme.window)
+    }
+
+    private var tab: SettingsTab { fixedTab ?? SettingsTab(rawValue: tabName) ?? .general }
+
+    /// One button per kind of setting; a dot says an update waits under About.
+    private var tabs: some View {
+        HStack(spacing: 4) {
+            ForEach(SettingsTab.allCases) { item in
+                let on = item == tab
+                Button { tabName = item.rawValue } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: item.symbol).font(.system(size: 16, weight: .medium)).frame(height: 20)
+                        Text(loc.t("settings.tab.\(item.rawValue)")).font(.system(size: 11, weight: on ? .semibold : .regular))
+                    }
+                    .foregroundStyle(on ? Theme.accent : Theme.muted)
+                    .frame(width: 90, height: 48)
+                    .background(on ? Theme.selectedFill : .clear, in: RoundedRectangle(cornerRadius: 9))
+                    .overlay(alignment: .topTrailing) {
+                        if item == .about, case .available = updater.state {
+                            Circle().fill(Theme.accent).frame(width: 8, height: 8).padding(6)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 8).frame(maxWidth: .infinity).background(Theme.bar)
+    }
+
+    /// What a group is for, in full.
+    private func note(_ text: String) -> some View {
+        Text(text).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16).padding(.vertical, 10).background(Theme.sidePanel)
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.faint)
+            .padding(.leading, 4).padding(.top, 8)
+    }
+
+    // MARK: - Sections
+
+    @ViewBuilder private var appearanceSection: some View {
+        heading(loc.t("settings.group.appearance"))
+        group {
+            row(loc.t("settings.appearance"), loc.t("settings.appearanceHint")) {
+                IconSegmented(items: AppearanceMode.allCases.map { ($0, $0.symbol, loc.t("appearance.\($0.rawValue)")) },
+                              selection: Binding(get: { appearance.mode }, set: { appearance.mode = $0 }), showLabels: true)
+            }
+            divider
+            row(loc.t("settings.language"), loc.t("settings.languageHint2")) {
+                Segmented(items: AppLanguage.allCases.map { ($0, $0 == .id ? "Indonesia" : "English") },
+                          selection: Binding(get: { loc.language }, set: { loc.language = $0 }), fontSize: 13, hPad: 14)
+            }
+        }
+    }
+
+    @ViewBuilder private var runningSection: some View {
+        @Bindable var model = model
+        heading(loc.t("settings.group.running"))
+        group {
+            row(loc.t("settings.keepAwake"), loc.t("settings.keepAwakeHint")) { Toggle("", isOn: $model.keepAwake).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+            divider
+            row(loc.t("settings.notifyVolume"), "") { Toggle("", isOn: $model.notifyVolume).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+            divider
+            row(loc.t("settings.notifyAttention"), loc.t("settings.notifyAttentionHint")) { Toggle("", isOn: $model.notifyAttention).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+        }
+    }
+
+    @ViewBuilder private var resultSection: some View {
+        @Bindable var model = model
+        heading(loc.t("settings.group.result"))
+        group {
+            row(loc.t("settings.qualityTitle"), loc.t("settings.q.hint.\(model.quality)")) {
+                Segmented(items: ["economy", "balanced", "best"].map { ($0, loc.t("settings.q.\($0)")) },
+                          selection: $model.quality, fontSize: 13, hPad: 12)
+            }
+            divider
+            row(loc.t("settings.target"), model.targetLanguage == "Indonesian" ? loc.t("settings.targetHint") : loc.t("settings.targetHintOther")) {
+                Picker("", selection: $model.targetLanguage) {
+                    ForEach(TargetLanguages.all, id: \.self) { Text(loc.t("langname.\($0)")).tag($0) }
+                }
+                .labelsHidden().frame(width: 190)
+            }
+            divider
+            row(loc.t("settings.style"), loc.t("settings.style.hint.\(model.styleMode.rawValue)")) {
+                Segmented(items: StyleMode.allCases.map { ($0, loc.t("settings.style.\($0.rawValue)")) },
+                          selection: $model.styleMode, fontSize: 13, hPad: 12)
+            }
+            divider
+            row(loc.t("settings.polish"), loc.t("settings.polishHint")) {
+                Toggle("", isOn: $model.polishNovels).labelsHidden().toggleStyle(.switch).tint(Theme.green)
+            }
+        }
+    }
+
+    @ViewBuilder private var speedSection: some View {
+        @Bindable var model = model
+        heading(loc.t("settings.group.speed"))
+        group {
+            row(loc.t("settings.limit"), loc.t(model.keepModel ? "settings.limit.waitHint" : "settings.limit.switchHint")) {
+                Segmented(items: [(false, loc.t("settings.limit.switch")), (true, loc.t("settings.limit.wait"))],
+                          selection: $model.keepModel, fontSize: 13, hPad: 12)
+            }
+            divider
+            row(loc.t("settings.parallel"), loc.t("settings.parallelHint")) {
+                Segmented(items: AppModel.parallelChoices.map { ($0, "\($0)") },
+                          selection: $model.parallelRequests, fontSize: 13, hPad: 14)
+            }
+            Text(loc.t("settings.speedNote")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16).padding(.vertical, 10).background(Theme.sidePanel)
+        }
+    }
+
+    @ViewBuilder private var folderSection: some View {
+        @Bindable var model = model
+        heading(loc.t("settings.group.folders"))
+        group {
+            row(loc.t("settings.libraryTitle"), model.env.booksDir.path) {
+                HStack {
+                    Button(loc.t("settings.reveal")) { NSWorkspace.shared.activateFileViewerSelecting([model.env.booksDir]) }.buttonStyle(GhostButtonStyle())
+                    Button(loc.t("settings.change")) { chooseFolder(model.env.booksDir) { url in
+                        UserDefaults.standard.set(url.path, forKey: "booksDir"); model.env.booksDir = url; model.library.reload(env: model.env, force: true)
+                    } }.buttonStyle(GhostButtonStyle())
+                }
+            }
+            divider
+            if model.env.isBuiltIn {
+                row(loc.t("settings.backend"), model.engineSetup.state == .ready ? loc.t("settings.engineBuiltIn") : loc.t("settings.engineNotReady")) {
+                    HStack {
+                        Button(loc.t("settings.engineRepair")) { model.repairEngine() }.buttonStyle(GhostButtonStyle())
+                            .disabled(model.engineSetup.state == .working)
+                        Button(loc.t("settings.engineUseFolder")) { model.chooseDeveloperFolder() }.buttonStyle(GhostButtonStyle())
+                    }
+                }
+            } else {
+                row(loc.t("settings.backend"), model.env.root.path) {
+                    HStack {
+                        if BackendEnvironment.bundledEngine != nil {
+                            Button(loc.t("settings.engineUseBuiltIn")) { model.useBuiltInEngine() }.buttonStyle(GhostButtonStyle())
+                        }
+                        Button(loc.t("settings.change")) { model.chooseDeveloperFolder() }.buttonStyle(GhostButtonStyle())
+                    }
+                }
+            }
+            divider
+            row(loc.t("settings.addToBooks"), loc.t("settings.addToBooksHint")) { Toggle("", isOn: $model.addToBooks).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+        }
+    }
+
+    @ViewBuilder private var metadataSection: some View {
+        heading(loc.t("settings.group.metadata"))
+        group {
+            row(loc.t("settings.onlineMeta"), loc.t("settings.onlineMetaHint")) {
+                HStack {
+                    if keyStored {
+                        Pill(text: loc.t("settings.keySaved"), bg: Theme.okBg, fg: Theme.okText, size: 12)
+                        Button(loc.t("settings.keyRemove")) { Secrets.googleBooksKey = ""; keyStored = false }.buttonStyle(GhostButtonStyle())
+                    } else {
+                        SecureField(loc.t("settings.keyPlaceholder"), text: $apiKey).textFieldStyle(.roundedBorder).frame(width: 180)
+                        Button(loc.t("settings.keySave")) { Secrets.googleBooksKey = apiKey.trimmingCharacters(in: .whitespaces); apiKey = ""; keyStored = !Secrets.googleBooksKey.isEmpty }
+                            .buttonStyle(GhostButtonStyle()).disabled(apiKey.isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var logSection: some View {
+        @Bindable var model = model
+        heading(loc.t("settings.group.log"))
+        group {
+            row(loc.t("settings.log"), loc.t("settings.logHint")) {
+                Toggle("", isOn: $model.keepLog).labelsHidden().toggleStyle(.switch).tint(Theme.green)
+            }
+            divider
+            row(loc.t("settings.logShare"), summaryCopied.map { loc.t($0 ? "settings.logCopied" : "settings.logCopyFailed") } ?? loc.t("settings.logShareHint")) {
+                HStack {
+                    Button(loc.t("settings.logFolder")) { model.openLogFolder() }.buttonStyle(GhostButtonStyle())
+                    Button(loc.t("settings.logCopy")) { Task { summaryCopied = await model.copyLogSummary() } }
+                        .buttonStyle(GhostButtonStyle()).disabled(!model.env.isReady)
+                    if summaryCopied == true {
+                        Button(loc.t("settings.logReport")) { NSWorkspace.shared.open(AboutPanel.logReportURL) }.buttonStyle(GhostButtonStyle())
+                    }
+                }
+            }
+            divider
+            row(loc.t("settings.logAbout"), loc.t("settings.logAboutHint")) {
+                Button(loc.t("settings.open")) { NSWorkspace.shared.open(AboutPanel.logPageURL) }.buttonStyle(GhostButtonStyle())
+            }
+        }
+    }
+
+    @ViewBuilder private var updateSection: some View {
+        @Bindable var updater = updater
+        heading(loc.t("settings.group.update"))
+        group {
+            row(Text(loc.t("app.title")).font(.system(size: 14, weight: .medium))
+                + Text(" " + loc.t("settings.versionNow", Updater.currentVersion, Updater.currentBuild)).font(.system(size: 14)).foregroundColor(Theme.muted),
+                updater.lastChecked.map { loc.t("settings.lastChecked", $0.formatted(date: .abbreviated, time: .shortened)) } ?? loc.t("settings.never")) {
+                Button(updater.state == .checking ? loc.t("settings.checking") : loc.t("settings.check")) { Task { await updater.check() } }
+                    .buttonStyle(GhostButtonStyle()).disabled(updater.state == .checking || updater.state == .downloading)
+            }
+            divider
+            row(loc.t("settings.auto"), loc.t("settings.autoHint")) { Toggle("", isOn: $updater.autoUpdate).labelsHidden().toggleStyle(.switch).tint(Theme.green) }
+            updateBanner
+            divider
+            row(loc.t("settings.github"), loc.t("settings.githubHint")) {
+                Button(loc.t("settings.open")) { NSWorkspace.shared.open(AboutPanel.repositoryURL) }.buttonStyle(GhostButtonStyle())
+            }
+        }
     }
 
     // MARK: - Pieces
@@ -232,7 +337,7 @@ struct SettingsView: View {
     private var kindleBlock: some View {
         @Bindable var model = model
         return group {
-            row(loc.t("kindle.title"), loc.t("kindle.hint")) { EmptyView() }
+            note(loc.t("kindle.hint"))
             divider
             row(loc.t("kindle.to"), model.kindle.to.isEmpty || model.kindle.toLooksRight ? loc.t("kindle.toHint") : loc.t("kindle.error.kindle_address")) {
                 TextField("nama@kindle.com", text: $model.kindle.to).textFieldStyle(.roundedBorder).frame(width: 260)
@@ -289,7 +394,49 @@ struct SettingsView: View {
             row(loc.t("kindle.log"), kindleLogCopied.map { loc.t($0 ? "kindle.logCopied" : "kindle.logEmpty") } ?? loc.t("kindle.logHint")) {
                 HStack {
                     Button(loc.t("settings.logFolder")) { model.showKindleLog() }.buttonStyle(GhostButtonStyle())
-                    Button(loc.t("kindle.logCopy")) { kindleLogCopied = model.copyKindleLog() }.buttonStyle(GhostButtonStyle())
+                    Button(loc.t("kindle.logCopy")) { kindleLogCopied = model.copyLog() }.buttonStyle(GhostButtonStyle())
+                }
+            }
+        }
+    }
+
+    // MARK: - E-ink reader
+
+    private var xteinkBlock: some View {
+        @Bindable var model = model
+        return group {
+            note(loc.t("xteink.hint"))
+            divider
+            row(loc.t("xteink.address"), loc.t("xteink.addressHint")) {
+                HStack(spacing: 6) {
+                    TextField(XteinkSettings.defaultAddress, text: $model.xteink.address).textFieldStyle(.roundedBorder).frame(width: 190)
+                    ToolButton(symbol: "safari", help: loc.t("xteink.webPage")) {
+                        if let url = model.xteink.webPage { NSWorkspace.shared.open(url) }
+                    }
+                }
+            }
+            divider
+            row(loc.t("xteink.folder"), loc.t("xteink.folderHint")) {
+                TextField(XteinkSettings.defaultFolder, text: $model.xteink.folder).textFieldStyle(.roundedBorder).frame(width: 230)
+            }
+            divider
+            row(loc.t("xteink.prepare"), loc.t("xteink.prepareHint")) {
+                Toggle("", isOn: $model.xteink.prepare).labelsHidden().toggleStyle(.switch).tint(Theme.green)
+            }
+            divider
+            row(loc.t("kindle.test"), xteinkTest?.text ?? loc.t("xteink.testHint")) {
+                Button(xteinkTesting ? loc.t("kindle.testing") : loc.t("kindle.test")) {
+                    xteinkTesting = true
+                    Task { xteinkTest = await model.testXteink(); xteinkTesting = false }
+                }
+                .buttonStyle(PrimaryButtonStyle(radius: 8, vertical: 5, horizontal: 12, size: 12.5))
+                .disabled(xteinkTesting || !model.env.isReady)
+            }
+            divider
+            row(loc.t("kindle.log"), xteinkLogCopied.map { loc.t($0 ? "kindle.logCopied" : "kindle.logEmpty") } ?? loc.t("xteink.logHint")) {
+                HStack {
+                    Button(loc.t("settings.logFolder")) { model.showKindleLog() }.buttonStyle(GhostButtonStyle())
+                    Button(loc.t("kindle.logCopy")) { xteinkLogCopied = model.copyLog("xteink.jsonl") }.buttonStyle(GhostButtonStyle())
                 }
             }
         }

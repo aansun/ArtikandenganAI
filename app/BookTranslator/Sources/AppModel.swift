@@ -120,6 +120,10 @@ final class AppModel {
     }
     var kindleReady: Bool { kindle.isComplete && kindlePasswordStored }
     var kindleSending: String?          // "<folder>#<volume>" while a file is on its way
+    var xteink = XteinkSettings.load() {
+        didSet { if xteink != oldValue { xteink.save() } }
+    }
+    var xteinkSending: String?          // "<folder>#<volume>" while a file is on its way to the reader
     /// What each engine offers, asked when Settings opens.
     var modelChoices: [String: ModelChoices] = [:]
     var targetLanguage: String = UserDefaults.standard.string(forKey: "targetLanguage") ?? "Indonesian" {
@@ -976,9 +980,10 @@ final class AppModel {
 
     var kindleLogFile: URL { env.booksDir.appendingPathComponent("_diagnostics/kindle.jsonl") }
 
-    /// Puts the Kindle log on the clipboard. False when nothing was recorded yet.
-    func copyKindleLog() -> Bool {
-        guard let text = try? String(contentsOf: kindleLogFile, encoding: .utf8), !text.isEmpty else { return false }
+    /// Puts a sending log on the clipboard. False when nothing was recorded yet.
+    func copyLog(_ name: String = "kindle.jsonl") -> Bool {
+        let file = kindleLogFile.deletingLastPathComponent().appendingPathComponent(name)
+        guard let text = try? String(contentsOf: file, encoding: .utf8), !text.isEmpty else { return false }
         NSPasteboard.general.clearContents()
         return NSPasteboard.general.setString(text, forType: .string)
     }
@@ -1071,6 +1076,53 @@ final class AppModel {
         guard let data = try? await BackendClient.run(env, ["--log-report"]), !data.isEmpty else { return false }
         NSPasteboard.general.clearContents()
         return NSPasteboard.general.setString(String(decoding: data, as: UTF8.self), forType: .string)
+    }
+
+    // MARK: - E-ink reader
+
+    /// The words for an answer of the engine that says why nothing worked.
+    static func xteinkError(code: String, detail: String, _ loc: Loc) -> String {
+        let text = loc.t(Loc.table["xteink.error.\(code)"] != nil ? "xteink.error.\(code)" : "xteink.error.unreachable")
+        return detail.isEmpty ? text : "\(text) (\(detail))"
+    }
+
+    /// Asks the reader who it is and sends nothing.
+    func testXteink() async -> (ok: Bool, text: String) {
+        do {
+            let answer = try await BackendClient.xteink(env, ["--xteink-test"] + xteink.arguments)
+            if answer.ok == true { return (true, Loc.shared.t("xteink.testOK", answer.device ?? "", answer.version ?? "")) }
+            return (false, Self.xteinkError(code: answer.error ?? "unreachable", detail: answer.detail ?? "", Loc.shared))
+        } catch { return (false, error.localizedDescription) }
+    }
+
+    func xteinkFiles(_ folder: String) async -> [XteinkFile] {
+        let path = env.booksDir.appendingPathComponent(folder).path
+        let answer = try? await BackendClient.xteink(env, ["--xteink-check", path])
+        return answer?.files ?? []
+    }
+
+    /// `exists`: the reader holds a file of this name that this app did not send; ask before replacing it.
+    func sendToXteink(_ folder: String, volume: Int, resend: Bool) async -> (ok: Bool, exists: Bool, text: String) {
+        guard xteinkSending == nil else { return (false, false, "") }
+        xteinkSending = "\(folder)#\(volume)"
+        defer { xteinkSending = nil }
+        let arguments = ["--xteink-send", env.booksDir.appendingPathComponent(folder).path, "--volumes", "\(volume)"]
+            + xteink.arguments + (resend ? ["--resend"] : [])
+        do {
+            let answer = try await BackendClient.xteink(env, arguments)
+            guard let result = answer.results?.first else {
+                return (false, false, Self.xteinkError(code: answer.error ?? "unreachable", detail: answer.detail ?? "", Loc.shared))
+            }
+            switch result.result {
+            case "sent": return (true, false, Loc.shared.t("xteink.sentNote", xteink.usedFolder))
+            case "already": return (true, false, Loc.shared.t("xteink.already"))
+            case "exists": return (false, true, "")
+            default:
+                // the engine words a failure as "code: what happened"
+                let parts = result.detail.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                return (false, false, Self.xteinkError(code: parts.first ?? "", detail: parts.count > 1 ? parts[1] : "", Loc.shared))
+            }
+        } catch { return (false, false, error.localizedDescription) }
     }
 
     // MARK: - Library

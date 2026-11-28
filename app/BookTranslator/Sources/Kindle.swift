@@ -152,7 +152,10 @@ struct KindleCard: View {
                 Text("Kindle").font(.system(size: 13)).foregroundStyle(Theme.ink).fixedSize().help(loc.t("kindle.title"))
                 Spacer(minLength: 4)
                 if !model.kindleReady {
-                    ToolButton(symbol: "gearshape", help: loc.t("kindle.setUp"), tint: Theme.accent) { openSettings() }
+                    ToolButton(symbol: "gearshape", help: loc.t("kindle.setUp"), tint: Theme.accent) {
+                        UserDefaults.standard.set(SettingsTab.kindle.rawValue, forKey: SettingsTab.key)
+                        openSettings()
+                    }
                 } else if files.count == 1, let file = files.first {
                     state(file).fixedSize()
                     sendButton(file)

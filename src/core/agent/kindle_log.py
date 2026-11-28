@@ -1,9 +1,9 @@
 """
-The Send to Kindle log: what happened at each connection test and each send, to find out why
-one failed.
+The sending log (Kindle and e-ink reader): what happened at each connection test and each
+send, to find out why one failed.
 
-A local file, ``<library>/_diagnostics/kindle.jsonl``, one JSON object per line, the newest
-last. Nothing sends it anywhere.
+Local files, ``<library>/_diagnostics/kindle.jsonl`` and ``xteink.jsonl``, one JSON object
+per line, the newest last. Nothing sends them anywhere.
 
 **What never goes in:** the password, e-mail addresses, titles, authors, file names or paths.
 Only the fields in ``FIELDS`` are written, and every address in a server's reply is replaced.
@@ -24,8 +24,8 @@ FOLDER = "_diagnostics"
 FILE = "kindle.jsonl"
 #: The oldest lines are dropped beyond this many.
 KEEP = 300
-FIELDS = ("action", "host", "port", "own_user_name", "app_password_shape", "ok", "stage", "error",
-          "detail", "volumes", "seconds")
+FIELDS = ("action", "host", "port", "own_user_name", "app_password_shape", "address", "device",
+          "firmware", "ok", "stage", "error", "detail", "volumes", "seconds")
 _ADDRESS = re.compile(r"[^\s<>,;:()\[\]\"']+@[^\s<>,;:()\[\]\"']+")
 
 
@@ -49,7 +49,7 @@ def settings_facts(env: Mapping[str, str]) -> dict:
     return facts
 
 
-def record(root: Path, *, app_version: str = "", password: str = "", **fields) -> None:
+def record(root: Path, *, app_version: str = "", password: str = "", file: str = FILE, **fields) -> None:
     """Append one line. A log that cannot be written never stops a send."""
     try:
         entry = {"time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "app": app_version[:20]}
@@ -58,7 +58,7 @@ def record(root: Path, *, app_version: str = "", password: str = "", **fields) -
             entry["detail"] = clean(entry["detail"], password)
         for volume in entry.get("volumes", []):
             volume["detail"] = clean(volume.get("detail", ""), password)
-        path = Path(root) / FOLDER / FILE
+        path = Path(root) / FOLDER / file
         path.parent.mkdir(parents=True, exist_ok=True)
         old = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
         lines = old[-(KEEP - 1):] + [json.dumps(entry, ensure_ascii=False)]

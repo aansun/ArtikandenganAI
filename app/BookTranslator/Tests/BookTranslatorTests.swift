@@ -109,7 +109,7 @@ final class QueueTests: XCTestCase {
     /// These tests run in the app's own defaults: put back every setting they change.
     private static let touchedKeys = ["queuePaused", "targetLanguage", "polishNovels", "parallelRequests", "keepLog", "styleMode", "verifiedBooks",
                                       "keepModel", "engineModels", "engineOrder",
-                                      "kindle", "kindlePasswordStored"]
+                                      "kindle", "kindlePasswordStored", "xteink", "settingsTab"]
     private var savedSettings: [String: Any] = [:]
 
     override func setUp() {
@@ -388,6 +388,31 @@ final class QueueTests: XCTestCase {
         for problem in ["unreadable", "too_large", "title", "author", "author_email", "language", "language_differs", "title_like_file_name", "damaged_characters", "cover", "same_title"] {
             XCTAssertNotNil(Loc.table["kindle.problem.\(problem)"], problem)
         }
+    }
+
+    func testTheReaderSettingsBecomeEngineArguments() throws {
+        var x = XteinkSettings()
+        XCTAssertEqual(x.arguments, ["--xteink-address", "crosspoint.local", "--xteink-folder", "/Books"])
+        XCTAssertEqual(x.webPage?.absoluteString, "http://crosspoint.local")
+        x.address = " HTTP://192.168.1.20 "; x.folder = "/Terjemahan"; x.prepare = false
+        XCTAssertEqual(x.arguments, ["--xteink-address", "HTTP://192.168.1.20", "--xteink-folder", "/Terjemahan", "--xteink-as-is"])
+        XCTAssertEqual(x.webPage?.absoluteString, "http://192.168.1.20")
+        let suite = "xteink-test-\(UUID().uuidString)"
+        let store = UserDefaults(suiteName: suite)!
+        defer { store.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(XteinkSettings.load(store), XteinkSettings())
+        x.save(store)
+        XCTAssertEqual(XteinkSettings.load(store), x)
+        let json = #"{"ok":false,"results":[{"volume":1,"result":"exists","detail":"exists: A.epub"}],"device":"X4","version":"1","firmware":"crosspoint"}"#
+        let answer = try JSONDecoder.snake.decode(XteinkAnswer.self, from: Data(json.utf8))
+        XCTAssertEqual(answer.results?.first?.result, "exists")
+        let check = #"{"files":[{"volume":1,"state":"changed","sent_at":"2026-11-28T01:00:00Z"}]}"#
+        XCTAssertEqual(try JSONDecoder.snake.decode(XteinkAnswer.self, from: Data(check.utf8)).files?.first?.state, "changed")
+        for code in ["address", "unreachable", "not_local", "not_crosspoint", "folder", "exists", "refused", "incomplete", "unreadable", "drm", "book"] {
+            XCTAssertNotNil(Loc.table["xteink.error.\(code)"], code)
+        }
+        for tab in SettingsTab.allCases { XCTAssertNotNil(Loc.table["settings.tab.\(tab.rawValue)"], tab.rawValue) }
+        XCTAssertTrue(AppModel.xteinkError(code: "unreachable", detail: "x", Loc.shared).hasSuffix("(x)"))
     }
 
     func testTheReadyCardWordingFollowsItsBooks() {
