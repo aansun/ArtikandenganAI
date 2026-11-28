@@ -196,36 +196,72 @@ struct ToolLabel: View {
     }
 }
 
-/// A full-width row of a list of actions: a symbol and a word or two.
-struct ActionRow: View {
-    var symbol: String
-    var title: String
-    var help: String
-    var tint: Color = Theme.accent
-    var action: () -> Void
-    var body: some View {
-        Button(action: action) { ActionLabel(symbol: symbol, title: title, tint: tint) }
-            .buttonStyle(.plain).help(help)
+/// The icons of other apps, read from the apps installed on this Mac: none is shipped with this one.
+@MainActor
+enum OfficialIcons {
+    static let books = icon(["com.apple.iBooksX"])
+    static let finder = icon(["com.apple.finder"])
+    /// Amazon's app, when the user has it.
+    static let kindle = icon(["com.amazon.Lassen", "com.amazon.Kindle"])
+
+    static func icon(_ identifiers: [String]) -> NSImage? {
+        identifiers.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
+            .map { NSWorkspace.shared.icon(forFile: $0.path) }
     }
 }
 
-/// The face of an action row, also used by menus.
-struct ActionLabel: View {
+/// An app's own icon when there is one, else a symbol; both take the same room.
+struct ActionIcon: View {
     var symbol: String
-    var title: String
+    var image: NSImage?
     var tint: Color = Theme.accent
-    var trailing: String?
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+            } else {
+                Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint)
+            }
+        }
+        .frame(width: 22, height: 22)
+    }
+}
+
+/// A group of actions under a short heading.
+struct ActionGroup<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint).padding(.leading, 4)
+            content
+        }
+    }
+}
+
+/// A full-width row of a list of actions: an icon and a word or two.
+struct ActionRow: View {
+    var symbol: String
+    var image: NSImage? = nil
+    var title: String
+    var help: String
+    var tint: Color = Theme.accent
+    var trailing: String? = nil
+    var action: () -> Void
     @Environment(\.isEnabled) private var enabled
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint).frame(width: 18)
-            Text(title).font(.system(size: 13)).foregroundStyle(Theme.ink)
-            Spacer(minLength: 0)
-            if let trailing { Image(systemName: trailing).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.faint) }
+        Button(action: action) {
+            HStack(spacing: 10) {
+                ActionIcon(symbol: symbol, image: image, tint: tint)
+                Text(title).font(.system(size: 13)).foregroundStyle(Theme.ink).lineLimit(1)
+                Spacer(minLength: 0)
+                if let trailing { Image(systemName: trailing).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.faint) }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            .opacity(enabled ? 1 : 0.4)
         }
-        .padding(.horizontal, 16).padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        .opacity(enabled ? 1 : 0.4)
+        .buttonStyle(.plain).help(help)
     }
 }
 

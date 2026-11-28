@@ -126,7 +126,7 @@ enum KindleMark: Equatable {
     }
 }
 
-/// On a book's page: what the Kindle will read from each file, whether it was sent, and the button to send it.
+/// The Kindle row of a book's page: whether each file was sent, what is wrong with it, and the button to send it.
 struct KindleCard: View {
     @Environment(AppModel.self) private var model
     @Environment(Loc.self) private var loc
@@ -146,27 +146,25 @@ struct KindleCard: View {
     }
 
     var body: some View {
-        CardBox {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "paperplane.fill").foregroundStyle(Theme.accent)
-                    Text("Kindle").font(.system(size: 13, weight: .semibold)).fixedSize().help(loc.t("kindle.title"))
-                    Spacer(minLength: 4)
-                    if !model.kindleReady {
-                        ToolButton(symbol: "gearshape", help: loc.t("kindle.setUp"), tint: Theme.accent) { openSettings() }
-                    } else if files.count == 1, let file = files.first {
-                        state(file).fixedSize()
-                        sendButton(file)
-                    }
-                }
-                ForEach(files) { row($0) }
-                if !message.isEmpty {
-                    Text(message).font(.system(size: 11)).foregroundStyle(failed ? Theme.danger : Theme.okText)
-                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                ActionIcon(symbol: "paperplane.fill", image: OfficialIcons.kindle)
+                Text("Kindle").font(.system(size: 13)).foregroundStyle(Theme.ink).fixedSize().help(loc.t("kindle.title"))
+                Spacer(minLength: 4)
+                if !model.kindleReady {
+                    ToolButton(symbol: "gearshape", help: loc.t("kindle.setUp"), tint: Theme.accent) { openSettings() }
+                } else if files.count == 1, let file = files.first {
+                    state(file).fixedSize()
+                    sendButton(file)
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(files) { row($0) }
+            if !message.isEmpty {
+                Text(message).font(.system(size: 11)).foregroundStyle(failed ? Theme.danger : Theme.okText)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            }
         }
+        .padding(.horizontal, 14).padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
         .task(id: revision) { await reload() }
         .confirmationDialog(asking.map { loc.t($0.state == "sent" ? "kindle.confirmAgain" : "kindle.confirm", $0.title) } ?? "",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),

@@ -14,6 +14,7 @@ struct BookDetailView: View {
     @State private var draft = ""
     @State private var notice: String?
     @State private var editError: String?
+    @State private var managing = false         // translate again and delete stay folded until asked for
 
     private var redoKey: String { book.isPolishOnly ? "detail.repolish" : "detail.redo" }
     private var firstOutput: URL? { book.volumes.first.map { URL(fileURLWithPath: $0.output) } }
@@ -54,51 +55,49 @@ struct BookDetailView: View {
                     HStack(spacing: 4) { Image(systemName: "chevron.left").font(.system(size: 12, weight: .bold)); Text(loc.t("library.back")) }
                         .font(.system(size: 14)).foregroundStyle(Theme.accent)
                 }.buttonStyle(.plain)
-                Button { if let url = firstOutput { NSWorkspace.shared.open(url) } } label: {
-                    Label(loc.t("detail.openBooks"), systemImage: "book.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(PrimaryButtonStyle())
-                actions
-                metadataActions
-                if book.volumes.count > 1 { volumes }
-                KindleCard(book: book)
+                ActionGroup(title: loc.t("group.read")) { reading }
+                ActionGroup(title: loc.t("detail.metadata")) { metadataActions }
                 CheckCard(book: book).id(book.folder)
+                managementActions
             }
             .padding(.horizontal, 20).padding(.vertical, 18)
         }
     }
 
-    private var verified: Bool { model.verified.contains(book.folder) }
-
-    /// What is done rarely, or cannot be undone, waits under "More".
-    private var actions: some View {
+    /// Where the book can be read: open it here, send it to the Kindle, or find its file.
+    /// A longer book has one more row per volume.
+    private var reading: some View {
         CardBox {
             VStack(spacing: 0) {
-                ActionRow(symbol: "folder", title: loc.t("detail.reveal.short"), help: loc.t("detail.reveal")) {
+                ActionRow(symbol: "book.fill", image: OfficialIcons.books, title: "Apple Books", help: loc.t("detail.openBooks"),
+                          trailing: "arrow.up.forward") { if let url = firstOutput { NSWorkspace.shared.open(url) } }
+                rowLine
+                KindleCard(book: book)
+                rowLine
+                ActionRow(symbol: "folder.fill", image: OfficialIcons.finder, title: "Finder", help: loc.t("detail.reveal"),
+                          trailing: "arrow.up.forward") {
                     if let url = firstOutput { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                 }
-                rowLine
-                Menu {
-                    Button { confirmRedo = true } label: { Label(loc.t(redoKey), systemImage: "arrow.clockwise") }
-                        .disabled(model.isBusy)
-                    Divider()
-                    Button(role: .destructive) { deletion = model.deletionPlan(book.folder) } label: {
-                        Label(loc.t(model.canDelete(book.folder) ? "delete.button" : "delete.queued"), systemImage: "trash")
+                if book.volumes.count > 1 {
+                    ForEach(book.volumes) { volume in
+                        rowLine
+                        ActionRow(symbol: volume.status == "completed" ? "checkmark.circle.fill" : "clock",
+                                  title: loc.t("detail.volumeN", volume.index),
+                                  help: volume.status == "completed" ? loc.t("detail.open") : volume.status,
+                                  tint: volume.status == "completed" ? Theme.green : Theme.warnIcon,
+                                  trailing: "arrow.up.forward") { NSWorkspace.shared.open(URL(fileURLWithPath: volume.output)) }
                     }
-                    .disabled(!model.canDelete(book.folder))
-                } label: {
-                    ActionLabel(symbol: "ellipsis.circle", title: loc.t("detail.more"), trailing: "chevron.down")
                 }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
             }
         }
     }
 
-    /// Everything about the details of the file, under its own heading.
+    private var verified: Bool { model.verified.contains(book.folder) }
+
+    /// Everything about the details of the file.
     private var metadataActions: some View {
         CardBox {
             VStack(spacing: 0) {
-                Text(loc.t("detail.metadata")).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 3)
                 ActionRow(symbol: "globe", title: loc.t("detail.lookup.short"), help: loc.t("lookup.button")) { showLookup = true }
                     .disabled(metadata == nil)
                 rowLine
@@ -110,29 +109,36 @@ struct BookDetailView: View {
         }
     }
 
-    private var rowLine: some View { Rectangle().fill(Theme.rowLine).frame(height: 1) }
-
-    /// One row per volume. A book of one volume has the main button for it.
-    private var volumes: some View {
+    /// What is done rarely, or cannot be undone.
+    private var managementActions: some View {
         CardBox {
             VStack(spacing: 0) {
-                ForEach(Array(book.volumes.enumerated()), id: \.element.id) { index, volume in
-                    HStack(spacing: 10) {
-                        Image(systemName: volume.status == "completed" ? "checkmark.circle.fill" : "clock")
-                            .font(.system(size: 11)).foregroundStyle(volume.status == "completed" ? Theme.green : Theme.warnIcon)
-                            .help(volume.status == "completed" ? loc.t("detail.volDone") : volume.status)
-                        Text(loc.t("detail.volumeN", volume.index)).font(.system(size: 13, weight: .medium))
-                        Spacer()
-                        ToolButton(symbol: "book", help: loc.t("detail.open")) {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: volume.output))
-                        }
+                Button { managing.toggle() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "slider.horizontal.3").foregroundStyle(Theme.muted)
+                        Text(loc.t("group.manage")).font(.system(size: 13, weight: .semibold))
+                        Spacer(minLength: 4)
+                        Image(systemName: managing ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Theme.faint).frame(width: 12)
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 6)
-                    if index < book.volumes.count - 1 { rowLine }
+                    .padding(.horizontal, 16).padding(.vertical, 12).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if managing {
+                    rowLine
+                    ActionRow(symbol: "arrow.clockwise", title: loc.t(redoKey), help: loc.t(redoKey)) { confirmRedo = true }
+                        .disabled(model.isBusy)
+                    rowLine
+                    ActionRow(symbol: "trash", title: loc.t("delete.button"),
+                              help: loc.t(model.canDelete(book.folder) ? "delete.button" : "delete.queued"),
+                              tint: Theme.danger) { deletion = model.deletionPlan(book.folder) }
+                        .disabled(!model.canDelete(book.folder))
                 }
             }
         }
     }
+
+    private var rowLine: some View { Rectangle().fill(Theme.rowLine).frame(height: 1) }
 
     private func languageName(_ value: String?) -> String {
         guard let value, !value.isEmpty else { return "" }
